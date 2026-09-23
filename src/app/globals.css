@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+:root {
+  --navy: #020817;
+  --cyan: #22d3ee;
+}
+
+@theme inline {
+  --color-navy: #020817;
+  --color-navy-2: #0b1224;
+  --color-navy-3: #111b2e;
+  --color-line: #1e3a4c;
+  --color-cyan: #22d3ee;
+  --color-teal: #14b8a6;
+  --color-cyan-ink: #042f2e;
+  --color-paper: #f8fafc;
+  --color-ink: #020817;
+  --color-muted: #8ba0b5;
+  --color-alert: #fb7185;
+  --color-ok: #34d399;
+  --color-warn: #fbbf24;
+  --font-sans: var(--font-inter);
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  background: #020817;
+  color: #f8fafc;
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+}
+
+input,
+textarea,
+select {
+  font-size: 16px;
+}
+
+html.sunlight,
+html.sunlight body {
+  background: #f8fafc;
+  color: #020817;
+}
+
+@custom-variant sunlight (&:where(.sunlight, .sunlight *));
