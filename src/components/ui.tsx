@@ -1,6 +1,6 @@
 "use client";
 
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import { forwardRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 
 export const inputClass =
   "min-h-14 w-full rounded-2xl border-2 border-line bg-navy-2 px-4 text-lg font-semibold text-white placeholder:text-muted/80 outline-none focus:border-cyan sunlight:bg-white sunlight:text-ink sunlight:border-slate-300 sunlight:placeholder:text-slate-400";
@@ -50,9 +50,11 @@ export function Button({
   );
 }
 
-export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={inputClass} {...props} />;
-}
+export const TextInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
+  function TextInput({ className = "", ...props }, ref) {
+    return <input ref={ref} className={`${inputClass} ${className}`} {...props} />;
+  },
+);
 
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return <select className={inputClass} {...props} />;
