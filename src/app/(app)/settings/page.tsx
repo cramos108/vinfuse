@@ -132,7 +132,7 @@ export default function SettingsPage() {
           </Link>
           <Link href="/inventory">
             <Button variant="line" className="w-full">
-              DMS CSV import
+              DMS Master List
             </Button>
           </Link>
         </div>

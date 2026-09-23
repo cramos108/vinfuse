@@ -72,10 +72,10 @@ export default function ScanPage() {
         setLast(result.scan);
         if (result.duplicate) {
           setFlash("dup");
-          setMessage("Already on this audit.");
+          setMessage("Already on this Scan List.");
         } else {
           setFlash("ok");
-          setMessage("Logged to this lot.");
+          setMessage("Added to the Scan List.");
           setCount((n) => n + 1);
         }
       } finally {
@@ -88,7 +88,7 @@ export default function ScanPage() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Lot walk</p>
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Scan List · lot walk</p>
         <h1 className="text-3xl font-black">Scan VIN</h1>
         <p className="font-semibold text-muted sunlight:text-slate-600">
           {session.user.fullName} · {session.dealership.name}

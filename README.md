@@ -1,6 +1,6 @@
 # VinFuse
 
-Mobile-first PWA for BHPH dealerships to walk the lot, scan VINs, and (on Pro) reconcile against a DMS CSV.
+Mobile-first PWA for BHPH dealerships to walk the lot, scan VINs, and (on Pro) compare the **Scan List / Walk Report** against a **DMS Master List**.
 
 Brand language matches [LeadFuse AI](https://bhph.leadfuse.ai/): navy surfaces, high contrast type, cyan/teal CTAs.
 
@@ -24,8 +24,8 @@ Without Supabase env vars the app runs in **local demo mode** (data in this brow
 
 - Sign in → **Try the Suncoast demo lot**
 - Demo login: `demo@vinfuse.app` / `demo1234`
-- Free: unlimited camera/manual VIN scans, one location, raw log
-- Upgrade in-app to Pro ($19.99/mo gates): CSV import, 2 sales lots + 1 service center, discrepancy report, team invites
+- Free: unlimited camera/manual VIN scans, one location, Scan List / Walk Report
+- Upgrade in-app to Pro ($19.99/mo gates): DMS Master Baseline for the current audit (does not delete scan history), 2 sales lots + 1 service center, printable discrepancy report, team invites
 
 ## Supabase (production)
 
@@ -48,9 +48,9 @@ Signup as a manager creates a dealership + Main Lot. Porters join with a 6-chara
 |---|---|---|
 | Camera VIN / barcode scan | Unlimited | Unlimited |
 | Locations | 1 | 2 sales lots + 1 service center |
-| Session scan log | Yes | Yes |
-| DMS CSV import | No | Yes |
-| Missing / unmatched / misplaced report | No | Yes |
+| Scan List / Walk Report | Yes | Yes |
+| DMS Master Baseline (current audit comparison) | No | Yes |
+| Missing / unmatched / misplaced report + print/PDF | No | Yes |
 | Team logins | No | Managers + lot porters |
 
 ## Deploy on Vercel

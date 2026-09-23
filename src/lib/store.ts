@@ -715,11 +715,11 @@ export async function importInventoryCsv(
   csvText: string,
 ): Promise<{ count: number; skipped: number }> {
   if (!canImportCsv(session.dealership, session.user.role)) {
-    throw new Error("CSV import is a Pro feature for managers.");
+    throw new Error("DMS Master Baseline upload is a Pro feature for managers.");
   }
   const parsed = parseInventoryCsv(csvText);
   if (parsed.error) throw new Error(parsed.error);
-  if (parsed.vehicles.length === 0) throw new Error("No VIN rows found in that CSV.");
+  if (parsed.vehicles.length === 0) throw new Error("No VIN rows found in that DMS Master List CSV.");
 
   const locByName = new Map(locations.map((l) => [l.name.trim().toLowerCase(), l]));
   const importedAt = now();
@@ -740,6 +740,8 @@ export async function importInventoryCsv(
     };
   });
 
+  // Replace the current DMS Master Baseline only. Scans, audit sessions, and
+  // historical Walk Reports are never deleted by a baseline upload.
   const sb = getSupabase();
   if (sb) {
     await sb.from("inventory_items").delete().eq("dealership_id", session.dealership.id);

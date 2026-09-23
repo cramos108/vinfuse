@@ -17,8 +17,8 @@ const FEATURES = [
   },
   {
     icon: FileSpreadsheet,
-    title: "DMS CSV reconciliation",
-    body: "Import your master list. Flag missing, unmatched, and misplaced cars in one pass.",
+    title: "DMS Master List vs Walk Report",
+    body: "Upload a book baseline for this audit, then compare it to the Scan List from the lot walk. Missing, unmatched, and misplaced — printable for month-end.",
   },
   {
     icon: Users,
@@ -63,7 +63,7 @@ export default function LandingPage() {
               </h1>
               <p className="mt-5 max-w-xl text-lg font-medium text-slate-600">
                 {APP_NAME} is the physical inventory audit app for Buy Here Pay Here lots. Scan barcodes in the sun,
-                log every unit, and (on Pro) reconcile against your DMS CSV in minutes.
+                build a Scan List on the walk, and (on Pro) compare it to your DMS Master List in minutes.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link

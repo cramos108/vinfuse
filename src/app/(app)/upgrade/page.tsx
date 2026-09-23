@@ -34,7 +34,8 @@ export default function UpgradePage() {
         <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">LeadFuse ecosystem</p>
         <h1 className="text-3xl font-black">VinFuse Pro</h1>
         <p className="font-semibold text-muted sunlight:text-slate-600">
-          {PRO_PRICE_LABEL}. Unlock DMS import, three locations, discrepancy reports, and team logins.
+          {PRO_PRICE_LABEL}. Unlock a DMS Master Baseline, three locations, printable discrepancy reports, and team
+          logins.
         </p>
       </div>
       <Card className="border-cyan">

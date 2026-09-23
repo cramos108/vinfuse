@@ -51,3 +51,18 @@ html.sunlight body {
 }
 
 @custom-variant sunlight (&:where(.sunlight, .sunlight *));
+
+@page {
+  margin: 12mm;
+  size: letter;
+}
+
+@media print {
+  html,
+  body,
+  html.sunlight,
+  html.sunlight body {
+    background: #ffffff !important;
+    color: #020817 !important;
+  }
+}

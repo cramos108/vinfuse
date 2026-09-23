@@ -83,7 +83,8 @@ export function parseInventoryCsv(text: string): {
     return {
       vehicles: [],
       skipped: 0,
-      error: "Could not find a VIN column. Use a header like VIN, Stock, Year, Make, Model, Color, Location.",
+      error:
+        "Could not find a VIN column on this DMS Master List. Use headers like VIN, Stock, Year, Make, Model, Color, Location.",
     };
   }
   const vehicles: ParsedVehicle[] = [];

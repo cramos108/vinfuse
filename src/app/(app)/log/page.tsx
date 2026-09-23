@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRequiredSession } from "@/components/AuthProvider";
 import { Button, Card } from "@/components/ui";
 import { closeAudit, getActiveLocationId, getOpenSession, listLocations, listScans, startAudit } from "@/lib/store";
+import { TERMS } from "@/lib/terms";
 import type { Scan } from "@/lib/types";
 import { formatVin } from "@/lib/vin";
 
@@ -31,7 +32,7 @@ export default function LogPage() {
 
   async function endWalk() {
     if (!auditId) return;
-    if (!confirm("Close this audit session? You can start a new walk anytime.")) return;
+    if (!confirm("Close this Walk Report? You can start a new Scan List anytime. Past walks stay in history.")) return;
     await closeAudit(auditId);
     await load();
   }
@@ -40,14 +41,24 @@ export default function LogPage() {
     <div className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Raw session log</p>
+          <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">
+            {TERMS.scanList} / {TERMS.walkReport}
+          </p>
           <h1 className="text-3xl font-black">{locationName}</h1>
-          <p className="font-semibold text-muted sunlight:text-slate-600">{scans.length} VIN{scans.length === 1 ? "" : "s"} this walk</p>
+          <p className="font-semibold text-muted sunlight:text-slate-600">
+            {scans.length} VIN{scans.length === 1 ? "" : "s"} captured on this physical walk
+          </p>
         </div>
         <Button variant="line" className="min-h-11 px-3 text-xs" onClick={() => void endWalk()}>
-          Close audit
+          Close walk
         </Button>
       </div>
+      <Card className="p-4">
+        <p className="text-sm font-semibold text-muted sunlight:text-slate-600">
+          This is the live {TERMS.scanList}: units porters actually scanned. It is separate from the{" "}
+          {TERMS.dmsMasterList} (what the books say should be here). Uploading a new baseline does not clear this list.
+        </p>
+      </Card>
       {scans.length === 0 ? (
         <Card>
           <p className="font-bold">No scans yet. Open Scan and point the camera at a VIN barcode.</p>

@@ -13,11 +13,11 @@ export const PLANS = {
     features: [
       "Unlimited camera VIN / barcode scanning",
       "Single location",
-      "Raw audit session log",
+      "Scan List / Walk Report of camera captures",
       "Add to home screen (PWA)",
     ],
     locked: [
-      "DMS CSV master list import",
+      "DMS Master List (baseline) import",
       "Automated discrepancy reports",
       "Multi-location switcher",
       "Multi-user team logins",
@@ -29,9 +29,9 @@ export const PLANS = {
     priceLabel: PRO_PRICE_LABEL,
     features: [
       "Everything in Free",
-      "DMS CSV master list import",
+      "DMS Master Baseline for the current audit",
       "2 sales lots + 1 service center",
-      "Missing / misplaced discrepancy reports",
+      "Printable Walk Report + discrepancy PDF",
       "Unlimited team logins (managers + lot porters)",
     ],
     locked: [] as string[],

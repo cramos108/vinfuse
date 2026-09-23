@@ -10,7 +10,7 @@ import { isManager, isPro, planLabel } from "@/lib/plan";
 
 const NAV = [
   { href: "/scan", label: "Scan", icon: ScanLine },
-  { href: "/log", label: "Log", icon: ClipboardList },
+  { href: "/log", label: "Walk", icon: ClipboardList },
   { href: "/audit", label: "Audit", icon: LayoutDashboard, manager: true },
   { href: "/settings", label: "More", icon: Settings },
 ];
@@ -33,7 +33,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-dvh bg-navy text-white sunlight:bg-paper sunlight:text-ink">
-      <header className="sticky top-0 z-30 border-b-2 border-line bg-navy/95 px-4 py-3 backdrop-blur sunlight:border-slate-200 sunlight:bg-white/95">
+      <header className="sticky top-0 z-30 border-b-2 border-line bg-navy/95 px-4 py-3 backdrop-blur print:hidden sunlight:border-slate-200 sunlight:bg-white/95">
         <div className="mx-auto flex max-w-lg items-center justify-between gap-3">
           <Logo />
           <div className="flex items-center gap-2">
@@ -51,9 +51,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-lg px-4 pb-28 pt-4">{children}</main>
-      <PwaInstallBanner />
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t-2 border-line bg-navy/95 pb-[env(safe-area-inset-bottom)] sunlight:border-slate-200 sunlight:bg-white/95">
+      <main className="mx-auto w-full max-w-lg px-4 pb-28 pt-4 print:max-w-none print:p-0">{children}</main>
+      <div className="print:hidden">
+        <PwaInstallBanner />
+      </div>
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t-2 border-line bg-navy/95 pb-[env(safe-area-inset-bottom)] print:hidden sunlight:border-slate-200 sunlight:bg-white/95">
         <div className={`mx-auto grid max-w-lg ${items.length === 4 ? "grid-cols-4" : "grid-cols-3"}`}>
           {items.map((item) => {
             const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
