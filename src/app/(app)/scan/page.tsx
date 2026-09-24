@@ -72,10 +72,10 @@ export default function ScanPage() {
         setLast(result.scan);
         if (result.duplicate) {
           setFlash("dup");
-          setMessage("Already on this Scan List.");
+          setMessage("Already on this Walk Scan List.");
         } else {
           setFlash("ok");
-          setMessage("Added to the Scan List.");
+          setMessage("Added to the Walk Scan List.");
           setCount((n) => n + 1);
         }
       } finally {

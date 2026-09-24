@@ -6,8 +6,8 @@ import { Button, Field, TextInput } from "@/components/ui";
 import type { ScanSource } from "@/lib/types";
 import {
   extractVin,
+  firstValidVin,
   formatVin,
-  isConfidentOcrVin,
   isValidVin,
   normalizeVin,
   vinHint,
@@ -28,9 +28,9 @@ import {
 } from "@/lib/camera";
 import {
   captureHighResStill,
-  enhanceOcrFrame,
+  enhanceDashboardStill,
   getVinOcrWorker,
-  isOcrBusy,
+  playVinLockSound,
   preprocessVinSnapshot,
   recognizeVinFromCanvas,
   terminateVinOcr,
@@ -64,7 +64,6 @@ export function VinScanner({
   const timerRef = useRef<number | null>(null);
   const lastRef = useRef<string>("");
   const pulseTimer = useRef<number | null>(null);
-  const ocrHits = useRef({ vin: "", count: 0 });
   const modeRef = useRef<ScanMode>("barcode");
   const onVinRef = useRef(onVin);
   onVinRef.current = onVin;
@@ -77,7 +76,7 @@ export function VinScanner({
   const [lockedVin, setLockedVin] = useState<string | null>(null);
   const [ocrReady, setOcrReady] = useState(false);
   const [ocrHint, setOcrHint] = useState(
-    "Hold the door sticker or dash plate in the frame, then tap Snap OCR for a high-res still.",
+    "Aim through the windshield at the dashboard VIN plate, then tap Capture Dashboard VIN.",
   );
   const [ocrBusy, setOcrBusy] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
@@ -91,6 +90,7 @@ export function VinScanner({
     if (pulseTimer.current) window.clearTimeout(pulseTimer.current);
     pulseTimer.current = window.setTimeout(() => setLockedVin(null), 1600);
     inputRef.current?.focus();
+    playVinLockSound();
     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate([25, 35, 45]);
   }, []);
 
@@ -108,69 +108,34 @@ export function VinScanner({
     [flashLock],
   );
 
-  const runOcrFrame = useCallback(async (force = false) => {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas || video.readyState < 2) return;
-    if (!force && isOcrBusy()) return;
-    setOcrBusy(true);
-    try {
-      const frame = enhanceOcrFrame(video, canvas);
-      if (!frame) return;
-      const result = await recognizeVinFromCanvas(frame, { wait: force });
-      if (modeRef.current !== "ocr") return;
-      if (!result.vin) {
-        ocrHits.current = { vin: "", count: 0 };
-        setOcrHint(result.raw ? "No 17-character VIN in that frame. Hold still." : "Looking for VIN text…");
-        return;
-      }
-      const hits =
-        ocrHits.current.vin === result.vin ? ocrHits.current.count + 1 : 1;
-      ocrHits.current = { vin: result.vin, count: hits };
-      setTyped(result.vin);
-      if (isConfidentOcrVin(result.vin, result.confidence, hits)) {
-        setOcrHint("VIN confirmed from text.");
-        await handleRaw(result.vin, "ocr");
-      } else {
-        setOcrHint("Hold still — confirming VIN structure…");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "OCR failed.");
-    } finally {
-      setOcrBusy(false);
-    }
-  }, [handleRaw]);
-
-  const snapOcr = useCallback(async () => {
+  const captureDashboardVin = useCallback(async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     const stream = streamRef.current;
     if (!video || !canvas || !stream) return;
     setOcrBusy(true);
     setError(null);
-    setOcrHint("Capturing high-resolution still…");
+    setOcrHint("Capturing high-resolution dashboard still…");
     try {
       const still = await captureHighResStill(stream, video);
-      setOcrHint("Enhancing snapshot (greyscale + contrast)…");
-      const enhanced = preprocessVinSnapshot(still, canvas, "plate");
+      setOcrHint("Enhancing still — contrast, edges, black-and-white…");
+      const enhanced = enhanceDashboardStill(still, canvas);
       if (!enhanced) {
-        setOcrHint("Could not process that still. Try again.");
+        setOcrHint("Could not process that still. Hold over the plate and capture again.");
         return;
       }
-      setOcrHint("Reading 17-character VIN…");
+      setOcrHint("Reading VIN from enhanced snapshot…");
       const result = await recognizeVinFromCanvas(enhanced, { wait: true, retryBlock: true });
       if (modeRef.current !== "ocr") return;
-      if (!result.vin || !isValidVin(result.vin)) {
-        ocrHits.current = { vin: "", count: 0 };
-        setOcrHint("No 17-character VIN on that still. Fill the frame and snap again.");
+      const vin = firstValidVin(result.raw) ?? result.vin;
+      if (!vin || !isValidVin(vin)) {
+        setOcrHint("No 17-character VIN in that capture. Fill the frame with the dash plate and try again.");
         return;
       }
-      ocrHits.current = { vin: result.vin, count: 2 };
-      setTyped(result.vin);
-      setOcrHint("VIN locked from snapshot.");
-      await handleRaw(result.vin, "ocr");
+      setOcrHint("VIN locked — logged to this Walk Scan List.");
+      await handleRaw(vin, "ocr");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Snapshot OCR failed.");
+      setError(err instanceof Error ? err.message : "Dashboard VIN capture failed.");
     } finally {
       setOcrBusy(false);
     }
@@ -281,7 +246,7 @@ export function VinScanner({
   const startOcr = useCallback(async () => {
     const video = videoRef.current;
     if (!video) return;
-    setOcrHint("Loading OCR engine…");
+    setOcrHint("Loading dashboard VIN reader…");
     setOcrReady(false);
     await getVinOcrWorker();
     setOcrReady(true);
@@ -289,17 +254,13 @@ export function VinScanner({
     streamRef.current = stream;
     video.srcObject = stream;
     await video.play();
-    timerRef.current = window.setInterval(() => {
-      void runOcrFrame(false);
-    }, 650);
     setEngine("ocr");
     setCameraOn(true);
     setError(null);
-    setOcrHint("Hold the door sticker or dash plate in the frame, then tap Snap OCR for a high-res still.");
+    setOcrHint("Aim through the windshield at the dashboard VIN plate, then tap Capture Dashboard VIN.");
     setTorchOn(false);
     setTorchAvailable(trackHasTorch(stream.getVideoTracks()[0]));
-    void runOcrFrame(true);
-  }, [runOcrFrame]);
+  }, []);
 
   const startCamera = useCallback(async () => {
     setError(null);
@@ -339,7 +300,6 @@ export function VinScanner({
 
   async function changeMode(next: ScanMode) {
     if (next === mode) return;
-    ocrHits.current = { vin: "", count: 0 };
     setMode(next);
   }
 
@@ -401,7 +361,7 @@ export function VinScanner({
           }`}
         >
           <Type className="h-5 w-5" />
-          OCR Text Scan
+          Dashboard VIN
         </button>
       </div>
 
@@ -425,7 +385,7 @@ export function VinScanner({
             className={`relative rounded-md border-[3px] ${
               locked ? "border-ok bg-ok/10" : "border-cyan"
             } shadow-[0_0_0_9999px_rgba(0,0,0,0.42)] ${
-              mode === "ocr" ? "h-24 w-[94%]" : "h-[4.75rem] w-[94%]"
+              mode === "ocr" ? "h-32 w-[96%]" : "h-[4.75rem] w-[94%]"
             }`}
           >
             <span className="absolute -left-0.5 -top-0.5 h-4 w-4 border-l-4 border-t-4 border-white" />
@@ -443,7 +403,7 @@ export function VinScanner({
               ? ocrReady
                 ? ocrBusy
                   ? "OCR reading…"
-                  : "OCR · VIN text"
+                  : "Dashboard VIN"
                 : "OCR loading…"
               : engine === "native"
                 ? "Native 39 · 128 · DM · QR"
@@ -527,18 +487,22 @@ export function VinScanner({
           <Camera className="h-5 w-5" />
           {cameraOn ? "Stop" : "Camera"}
         </Button>
-        {mode === "ocr" ? (
-          <Button variant="line" onClick={() => void snapOcr()} disabled={!cameraOn || ocrBusy}>
-            <Type className="h-5 w-5" />
-            Snap OCR
-          </Button>
-        ) : (
-          <Button variant="line" onClick={() => inputRef.current?.focus()}>
-            <Keyboard className="h-5 w-5" />
-            Type VIN
-          </Button>
-        )}
+        <Button variant="line" onClick={() => inputRef.current?.focus()}>
+          <Keyboard className="h-5 w-5" />
+          Type VIN
+        </Button>
       </div>
+
+      {mode === "ocr" ? (
+        <Button
+          className="w-full min-h-16 text-base"
+          onClick={() => void captureDashboardVin()}
+          disabled={!cameraOn || ocrBusy || busy}
+        >
+          <Camera className="h-6 w-6" />
+          {ocrBusy ? "Capturing…" : "Capture Dashboard VIN"}
+        </Button>
+      ) : null}
 
       <Button onClick={submitTyped} disabled={busy || typed.length < 17}>
         <Zap className="h-5 w-5" />

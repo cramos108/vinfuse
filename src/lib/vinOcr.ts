@@ -140,6 +140,111 @@ function applyGreyscaleContrast(canvas: HTMLCanvasElement) {
   ctx.putImageData(img, 0, 0);
 }
 
+function sharpenLuma(gray: Float32Array, w: number, h: number): Float32Array {
+  const out = new Float32Array(gray.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const c = gray[i];
+      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) {
+        out[i] = c;
+        continue;
+      }
+      const val = 5 * c - gray[i - 1] - gray[i + 1] - gray[i - w] - gray[i + w];
+      out[i] = val < 0 ? 0 : val > 255 ? 255 : val;
+    }
+  }
+  return out;
+}
+
+function adaptiveBinarize(gray: Float32Array, w: number, h: number, radius = 18, c = 10): Uint8ClampedArray {
+  const integW = w + 1;
+  const integ = new Float64Array(integW * (h + 1));
+  for (let y = 1; y <= h; y++) {
+    let row = 0;
+    for (let x = 1; x <= w; x++) {
+      row += gray[(y - 1) * w + (x - 1)];
+      integ[y * integW + x] = integ[(y - 1) * integW + x] + row;
+    }
+  }
+  const out = new Uint8ClampedArray(w * h);
+  let black = 0;
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.max(0, y - radius);
+    const y1 = Math.min(h - 1, y + radius);
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.max(0, x - radius);
+      const x1 = Math.min(w - 1, x + radius);
+      const count = (x1 - x0 + 1) * (y1 - y0 + 1);
+      const sum =
+        integ[(y1 + 1) * integW + (x1 + 1)] -
+        integ[y0 * integW + (x1 + 1)] -
+        integ[(y1 + 1) * integW + x0] +
+        integ[y0 * integW + x0];
+      const mean = sum / count;
+      const on = gray[y * w + x] >= mean - c;
+      out[y * w + x] = on ? 255 : 0;
+      if (!on) black += 1;
+    }
+  }
+  if (black > out.length * 0.55) {
+    for (let i = 0; i < out.length; i++) out[i] = out[i] ? 0 : 255;
+  }
+  return out;
+}
+
+/**
+ * Windshield / dashboard VIN plate: boost contrast, sharpen edges, then
+ * adaptive black-and-white to kill glare and patterned dash backgrounds.
+ */
+export function enhanceDashboardStill(
+  source: CanvasImageSource,
+  canvas: HTMLCanvasElement,
+): HTMLCanvasElement | null {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  const { w, h } = sourceSize(source);
+  if (!w || !h) return null;
+
+  const cropW = Math.floor(w * 0.96);
+  const cropH = Math.max(180, Math.floor(h * 0.42));
+  const sx = Math.floor((w - cropW) / 2);
+  const sy = Math.floor((h - cropH) / 2);
+  const outW = Math.min(2560, cropW);
+  const outH = Math.max(180, Math.round((cropH / cropW) * outW));
+  canvas.width = outW;
+  canvas.height = outH;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(source, sx, sy, cropW, cropH, 0, 0, outW, outH);
+
+  const img = ctx.getImageData(0, 0, outW, outH);
+  const data = img.data;
+  let min = 255;
+  let max = 0;
+  const gray = new Float32Array(outW * outH);
+  for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
+    const y = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    gray[p] = y;
+    if (y < min) min = y;
+    if (y > max) max = y;
+  }
+  const range = Math.max(1, max - min);
+  for (let p = 0; p < gray.length; p++) {
+    let y = ((gray[p] - min) / range) * 255;
+    y = (y - 128) * 2.05 + 128;
+    gray[p] = y < 0 ? 0 : y > 255 ? 255 : y;
+  }
+  const sharp = sharpenLuma(gray, outW, outH);
+  const bw = adaptiveBinarize(sharp, outW, outH);
+  for (let p = 0, i = 0; p < bw.length; p++, i += 4) {
+    data[i] = data[i + 1] = data[i + 2] = bw[p];
+    data[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
 /** Crop the VIN band, convert to greyscale, and stretch contrast for door/dash plates. */
 export function preprocessVinSnapshot(
   source: CanvasImageSource,
@@ -168,6 +273,32 @@ export function preprocessVinSnapshot(
 
 export function enhanceOcrFrame(video: HTMLVideoElement, canvas: HTMLCanvasElement): HTMLCanvasElement | null {
   return preprocessVinSnapshot(video, canvas, "plate");
+}
+
+let audioCtx: AudioContext | null = null;
+
+export function playVinLockSound() {
+  try {
+    const AC = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AC) return;
+    audioCtx = audioCtx ?? new AC();
+    if (audioCtx.state === "suspended") void audioCtx.resume();
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(980, t);
+    osc.frequency.setValueAtTime(1310, t + 0.07);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.11, t + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.22);
+  } catch {
+    /* autoplay or missing Web Audio */
+  }
 }
 
 export async function captureHighResStill(

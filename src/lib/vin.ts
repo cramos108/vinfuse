@@ -1,4 +1,6 @@
-const VIN_RE = /\b([A-HJ-NPR-Z0-9]{17})\b/;
+/** ISO 3779 VIN: 17 chars, A–H J–N P R–Z 0–9 (never I, O, or Q). */
+export const VIN_REGEX = /(?:^|[^A-HJ-NPR-Z0-9])([A-HJ-NPR-Z0-9]{17})(?![A-HJ-NPR-Z0-9])/gi;
+const VIN_CHUNK = /[A-HJ-NPR-Z0-9]{17}/g;
 const VIN_CHAR = /^[A-HJ-NPR-Z0-9]+$/;
 const VIN_WHITELIST = "ABCDEFGHJKLMNPRSTUVWXYZ0123456789";
 const WEIGHTS = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2];
@@ -25,19 +27,37 @@ export function correctOcrVinText(raw: string): string {
 }
 
 export function extractVin(raw: string): string | null {
-  const compact = normalizeVin(raw);
-  if (isValidVin(compact)) return compact;
-  const match = compact.match(VIN_RE) ?? raw.toUpperCase().match(VIN_RE);
-  return match ? match[1] : null;
+  return firstValidVin(raw);
+}
+
+export function extractVinsByRegex(raw: string): string[] {
+  const found = new Set<string>();
+  const corrected = correctOcrVinText(raw);
+  if (isValidVin(corrected)) found.add(corrected);
+
+  VIN_REGEX.lastIndex = 0;
+  const spaced = raw.toUpperCase().replace(/[IOQ]/g, (ch) => (ch === "I" ? "1" : "0"));
+  let m: RegExpExecArray | null;
+  while ((m = VIN_REGEX.exec(spaced))) {
+    if (isValidVin(m[1])) found.add(m[1]);
+  }
+
+  const compact = correctOcrVinText(raw.replace(/[\s.\-_]+/g, ""));
+  const chunks = compact.match(VIN_CHUNK) ?? [];
+  for (const chunk of chunks) {
+    if (isValidVin(chunk)) found.add(chunk);
+  }
+  return [...found];
+}
+
+export function firstValidVin(raw: string): string | null {
+  const vins = extractVinsByRegex(raw);
+  if (!vins.length) return null;
+  return vins.find(hasValidVinCheckDigit) ?? vins[0];
 }
 
 export function extractVinFromOcr(raw: string): string | null {
-  const compact = correctOcrVinText(raw);
-  if (isValidVin(compact)) return compact;
-  const matches = compact.match(/[A-HJ-NPR-Z0-9]{17}/g);
-  if (!matches?.length) return extractVin(raw);
-  const ranked = [...matches].sort((a, b) => Number(hasValidVinCheckDigit(b)) - Number(hasValidVinCheckDigit(a)));
-  return ranked[0] ?? null;
+  return firstValidVin(raw);
 }
 
 export function isValidVin(vin: string): boolean {
