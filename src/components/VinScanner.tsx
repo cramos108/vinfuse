@@ -13,27 +13,32 @@ import {
   vinHint,
 } from "@/lib/vin";
 import {
+  createVinBarcodeDetector,
+  detectVinBarcodes,
+  hasBarcodeDetector,
+} from "@/lib/barcodeNative";
+import {
+  captureHighResStill,
   enhanceOcrFrame,
   getVinOcrWorker,
   isOcrBusy,
+  preprocessVinSnapshot,
   recognizeVinFromCanvas,
   terminateVinOcr,
 } from "@/lib/vinOcr";
 
 type ScanMode = "barcode" | "ocr";
 
-type BarcodeDetectorLike = {
-  detect: (source: CanvasImageSource) => Promise<Array<{ rawValue: string }>>;
-};
-
-type DetectorCtor = new (options: { formats: string[] }) => BarcodeDetectorLike;
-
-const VIN_FORMATS = ["code_39", "code_128", "qr_code"] as const;
-
 const CAMERA_VIDEO: MediaTrackConstraints = {
   facingMode: { ideal: "environment" },
   width: { ideal: 1920 },
   height: { ideal: 1080 },
+};
+
+const OCR_CAMERA: MediaTrackConstraints = {
+  facingMode: { ideal: "environment" },
+  width: { ideal: 3840 },
+  height: { ideal: 2160 },
 };
 
 function vinQrbox(viewfinderWidth: number, viewfinderHeight: number) {
@@ -42,54 +47,17 @@ function vinQrbox(viewfinderWidth: number, viewfinderHeight: number) {
   return { width, height };
 }
 
-function enhanceStickerFrame(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return null;
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
-  if (!vw || !vh) return null;
-
-  const cropW = Math.floor(vw * 0.94);
-  const cropH = Math.max(80, Math.floor(vh * 0.24));
-  const sx = Math.floor((vw - cropW) / 2);
-  const sy = Math.floor((vh - cropH) / 2);
-  canvas.width = cropW;
-  canvas.height = cropH;
-  ctx.filter = "contrast(1.55) grayscale(1) brightness(1.08)";
-  ctx.drawImage(video, sx, sy, cropW, cropH, 0, 0, cropW, cropH);
-  ctx.filter = "none";
-
-  const img = ctx.getImageData(0, 0, cropW, cropH);
-  const data = img.data;
-  let min = 255;
-  let max = 0;
-  for (let i = 0; i < data.length; i += 4) {
-    const y = data[i];
-    if (y < min) min = y;
-    if (y > max) max = y;
-  }
-  const range = Math.max(1, max - min);
-  for (let i = 0; i < data.length; i += 4) {
-    let y = ((data[i] - min) / range) * 255;
-    y = (y - 128) * 1.45 + 128;
-    y = y < 48 ? 0 : y > 208 ? 255 : y;
-    data[i] = data[i + 1] = data[i + 2] = y;
-  }
-  ctx.putImageData(img, 0, 0);
-  return canvas;
-}
-
-async function openRearCamera(): Promise<MediaStream> {
+async function openRearCamera(constraints: MediaTrackConstraints): Promise<MediaStream> {
   try {
     return await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {
-        ...CAMERA_VIDEO,
+        ...constraints,
         advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet],
       },
     });
   } catch {
-    return navigator.mediaDevices.getUserMedia({ audio: false, video: CAMERA_VIDEO });
+    return navigator.mediaDevices.getUserMedia({ audio: false, video: constraints });
   }
 }
 
@@ -121,7 +89,9 @@ export function VinScanner({
   const [typed, setTyped] = useState("");
   const [lockedVin, setLockedVin] = useState<string | null>(null);
   const [ocrReady, setOcrReady] = useState(false);
-  const [ocrHint, setOcrHint] = useState("Hold the stamped VIN in the frame.");
+  const [ocrHint, setOcrHint] = useState(
+    "Hold the door sticker or dash plate in the frame, then tap Snap OCR for a high-res still.",
+  );
   const [ocrBusy, setOcrBusy] = useState(false);
 
   modeRef.current = mode;
@@ -158,7 +128,7 @@ export function VinScanner({
     try {
       const frame = enhanceOcrFrame(video, canvas);
       if (!frame) return;
-      const result = await recognizeVinFromCanvas(frame);
+      const result = await recognizeVinFromCanvas(frame, { wait: force });
       if (modeRef.current !== "ocr") return;
       if (!result.vin) {
         ocrHits.current = { vin: "", count: 0 };
@@ -177,6 +147,41 @@ export function VinScanner({
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "OCR failed.");
+    } finally {
+      setOcrBusy(false);
+    }
+  }, [handleRaw]);
+
+  const snapOcr = useCallback(async () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const stream = streamRef.current;
+    if (!video || !canvas || !stream) return;
+    setOcrBusy(true);
+    setError(null);
+    setOcrHint("Capturing high-resolution still…");
+    try {
+      const still = await captureHighResStill(stream, video);
+      setOcrHint("Enhancing snapshot (greyscale + contrast)…");
+      const enhanced = preprocessVinSnapshot(still, canvas, "plate");
+      if (!enhanced) {
+        setOcrHint("Could not process that still. Try again.");
+        return;
+      }
+      setOcrHint("Reading 17-character VIN…");
+      const result = await recognizeVinFromCanvas(enhanced, { wait: true, retryBlock: true });
+      if (modeRef.current !== "ocr") return;
+      if (!result.vin || !isValidVin(result.vin)) {
+        ocrHits.current = { vin: "", count: 0 };
+        setOcrHint("No 17-character VIN on that still. Fill the frame and snap again.");
+        return;
+      }
+      ocrHits.current = { vin: result.vin, count: 2 };
+      setTyped(result.vin);
+      setOcrHint("VIN locked from snapshot.");
+      await handleRaw(result.vin, "ocr");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Snapshot OCR failed.");
     } finally {
       setOcrBusy(false);
     }
@@ -214,7 +219,6 @@ export function VinScanner({
       formatsToSupport: [
         Html5QrcodeSupportedFormats.CODE_39,
         Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.QR_CODE,
       ],
       useBarCodeDetectorIfSupported: true,
     });
@@ -239,33 +243,34 @@ export function VinScanner({
   }, [handleRaw]);
 
   const startNative = useCallback(async () => {
-    const Detector = (window as unknown as { BarcodeDetector?: DetectorCtor }).BarcodeDetector;
-    if (!Detector) return false;
+    if (!("BarcodeDetector" in window) || !hasBarcodeDetector()) return false;
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return false;
-    let detector: BarcodeDetectorLike;
-    try {
-      detector = new Detector({ formats: [...VIN_FORMATS] });
-    } catch {
-      return false;
-    }
-    const stream = await openRearCamera();
+    const detector = await createVinBarcodeDetector();
+    if (!detector) return false;
+    const stream = await openRearCamera(CAMERA_VIDEO);
     streamRef.current = stream;
     video.srcObject = stream;
     await video.play();
+    let scanning = false;
     timerRef.current = window.setInterval(async () => {
-      if (video.readyState < 2) return;
+      if (scanning || video.readyState < 2) return;
+      scanning = true;
       try {
-        const enhanced = enhanceStickerFrame(video, canvas);
-        const primary = enhanced ? await detector.detect(enhanced) : [];
-        const codes = primary.length ? primary : await detector.detect(video);
+        let codes = await detectVinBarcodes(detector, video);
+        if (!codes.length) {
+          const enhanced = preprocessVinSnapshot(video, canvas, "barcode");
+          if (enhanced) codes = await detectVinBarcodes(detector, enhanced);
+        }
         const raw = codes[0]?.rawValue;
         if (raw) await handleRaw(raw, "barcode");
       } catch {
         /* frame skipped */
+      } finally {
+        scanning = false;
       }
-    }, 110);
+    }, 80);
     setEngine("native");
     setCameraOn(true);
     setError(null);
@@ -279,7 +284,7 @@ export function VinScanner({
     setOcrReady(false);
     await getVinOcrWorker();
     setOcrReady(true);
-    const stream = await openRearCamera();
+    const stream = await openRearCamera(OCR_CAMERA);
     streamRef.current = stream;
     video.srcObject = stream;
     await video.play();
@@ -289,7 +294,7 @@ export function VinScanner({
     setEngine("ocr");
     setCameraOn(true);
     setError(null);
-    setOcrHint("Hold the stamped VIN in the frame.");
+    setOcrHint("Hold the door sticker or dash plate in the frame, then tap Snap OCR for a high-res still.");
     void runOcrFrame(true);
   }, [runOcrFrame]);
 
@@ -409,7 +414,9 @@ export function VinScanner({
                   ? "OCR reading…"
                   : "OCR · VIN text"
                 : "OCR loading…"
-              : "CODE 39 · 128 · QR"}
+              : engine === "native"
+                ? "Native CODE 39 · 128"
+                : "CODE 39 · 128"}
         </div>
 
         {lockedVin ? (
@@ -429,7 +436,9 @@ export function VinScanner({
         <p className="text-sm font-semibold text-muted sunlight:text-slate-600">
           {mode === "ocr"
             ? ocrHint
-            : "Fill the white frame with the door-jamb or window-sticker barcode. Switch to OCR Text Scan if the barcode is laminated or missing."}
+            : engine === "native"
+              ? "Hardware barcode scan (CODE 39 / CODE 128). Fill the frame with the door-jamb or window-sticker barcode."
+              : "Fill the white frame with the door-jamb or window-sticker barcode. Switch to OCR Text Scan if the barcode is laminated or missing."}
         </p>
       )}
 
@@ -467,7 +476,7 @@ export function VinScanner({
           {cameraOn ? "Stop" : "Camera"}
         </Button>
         {mode === "ocr" ? (
-          <Button variant="line" onClick={() => void runOcrFrame(true)} disabled={!cameraOn || ocrBusy}>
+          <Button variant="line" onClick={() => void snapOcr()} disabled={!cameraOn || ocrBusy}>
             <Type className="h-5 w-5" />
             Snap OCR
           </Button>
