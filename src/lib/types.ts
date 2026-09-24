@@ -1,7 +1,7 @@
 export type Plan = "free" | "pro";
 export type Role = "manager" | "porter";
 export type LocationKind = "sales_lot" | "service_center";
-export type ScanSource = "barcode" | "manual";
+export type ScanSource = "barcode" | "manual" | "ocr";
 export type AuditStatus = "open" | "closed";
 
 export type Dealership = {

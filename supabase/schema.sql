@@ -56,8 +56,11 @@ create table if not exists public.scans (
   vin text not null,
   scanned_by uuid not null references public.profiles (id),
   scanned_at timestamptz not null default now(),
-  source text not null check (source in ('barcode', 'manual'))
+  source text not null check (source in ('barcode', 'manual', 'ocr'))
 );
+
+alter table public.scans drop constraint if exists scans_source_check;
+alter table public.scans add constraint scans_source_check check (source in ('barcode', 'manual', 'ocr'));
 
 create table if not exists public.inventory_items (
   id uuid primary key default gen_random_uuid(),

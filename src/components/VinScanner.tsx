@@ -1,9 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, Check, Keyboard, Zap } from "lucide-react";
+import { Camera, Check, Keyboard, ScanLine, Type, Zap } from "lucide-react";
 import { Button, Field, TextInput } from "@/components/ui";
-import { extractVin, formatVin, isValidVin, normalizeVin, vinHint } from "@/lib/vin";
+import type { ScanSource } from "@/lib/types";
+import {
+  extractVin,
+  formatVin,
+  isConfidentOcrVin,
+  isValidVin,
+  normalizeVin,
+  vinHint,
+} from "@/lib/vin";
+import {
+  enhanceOcrFrame,
+  getVinOcrWorker,
+  isOcrBusy,
+  recognizeVinFromCanvas,
+  terminateVinOcr,
+} from "@/lib/vinOcr";
+
+type ScanMode = "barcode" | "ocr";
 
 type BarcodeDetectorLike = {
   detect: (source: CanvasImageSource) => Promise<Array<{ rawValue: string }>>;
@@ -80,7 +97,7 @@ export function VinScanner({
   onVin,
   busy,
 }: {
-  onVin: (vin: string, source: "barcode" | "manual") => Promise<void> | void;
+  onVin: (vin: string, source: ScanSource) => Promise<void> | void;
   busy?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -92,14 +109,22 @@ export function VinScanner({
   const timerRef = useRef<number | null>(null);
   const lastRef = useRef<string>("");
   const pulseTimer = useRef<number | null>(null);
+  const ocrHits = useRef({ vin: "", count: 0 });
+  const modeRef = useRef<ScanMode>("barcode");
   const onVinRef = useRef(onVin);
   onVinRef.current = onVin;
 
+  const [mode, setMode] = useState<ScanMode>("barcode");
   const [cameraOn, setCameraOn] = useState(false);
-  const [engine, setEngine] = useState<"native" | "html5" | "off">("off");
+  const [engine, setEngine] = useState<"native" | "html5" | "ocr" | "off">("off");
   const [error, setError] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
   const [lockedVin, setLockedVin] = useState<string | null>(null);
+  const [ocrReady, setOcrReady] = useState(false);
+  const [ocrHint, setOcrHint] = useState("Hold the stamped VIN in the frame.");
+  const [ocrBusy, setOcrBusy] = useState(false);
+
+  modeRef.current = mode;
 
   const flashLock = useCallback((vin: string) => {
     setTyped(vin);
@@ -111,10 +136,10 @@ export function VinScanner({
   }, []);
 
   const handleRaw = useCallback(
-    async (raw: string, source: "barcode" | "manual") => {
+    async (raw: string, source: ScanSource) => {
       const vin = extractVin(raw) ?? normalizeVin(raw);
       if (!isValidVin(vin)) return false;
-      const repeat = source === "barcode" && lastRef.current === vin;
+      const repeat = source !== "manual" && lastRef.current === vin;
       flashLock(vin);
       if (repeat) return true;
       lastRef.current = vin;
@@ -123,6 +148,39 @@ export function VinScanner({
     },
     [flashLock],
   );
+
+  const runOcrFrame = useCallback(async (force = false) => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || video.readyState < 2) return;
+    if (!force && isOcrBusy()) return;
+    setOcrBusy(true);
+    try {
+      const frame = enhanceOcrFrame(video, canvas);
+      if (!frame) return;
+      const result = await recognizeVinFromCanvas(frame);
+      if (modeRef.current !== "ocr") return;
+      if (!result.vin) {
+        ocrHits.current = { vin: "", count: 0 };
+        setOcrHint(result.raw ? "No 17-character VIN in that frame. Hold still." : "Looking for VIN text…");
+        return;
+      }
+      const hits =
+        ocrHits.current.vin === result.vin ? ocrHits.current.count + 1 : 1;
+      ocrHits.current = { vin: result.vin, count: hits };
+      setTyped(result.vin);
+      if (isConfidentOcrVin(result.vin, result.confidence, hits)) {
+        setOcrHint("VIN confirmed from text.");
+        await handleRaw(result.vin, "ocr");
+      } else {
+        setOcrHint("Hold still — confirming VIN structure…");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "OCR failed.");
+    } finally {
+      setOcrBusy(false);
+    }
+  }, [handleRaw]);
 
   const stopCamera = useCallback(async () => {
     if (timerRef.current) {
@@ -141,6 +199,7 @@ export function VinScanner({
     streamRef.current = null;
     const video = videoRef.current;
     if (video) video.srcObject = null;
+    if (boxRef.current) boxRef.current.innerHTML = "";
     setEngine("off");
     setCameraOn(false);
   }, []);
@@ -213,9 +272,34 @@ export function VinScanner({
     return true;
   }, [handleRaw]);
 
+  const startOcr = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) return;
+    setOcrHint("Loading OCR engine…");
+    setOcrReady(false);
+    await getVinOcrWorker();
+    setOcrReady(true);
+    const stream = await openRearCamera();
+    streamRef.current = stream;
+    video.srcObject = stream;
+    await video.play();
+    timerRef.current = window.setInterval(() => {
+      void runOcrFrame(false);
+    }, 650);
+    setEngine("ocr");
+    setCameraOn(true);
+    setError(null);
+    setOcrHint("Hold the stamped VIN in the frame.");
+    void runOcrFrame(true);
+  }, [runOcrFrame]);
+
   const startCamera = useCallback(async () => {
     setError(null);
     try {
+      if (modeRef.current === "ocr") {
+        await startOcr();
+        return;
+      }
       const native = await startNative();
       if (!native) await startHtml5();
     } catch (err) {
@@ -223,15 +307,33 @@ export function VinScanner({
       setError(message);
       setCameraOn(false);
     }
-  }, [startHtml5, startNative]);
+  }, [startHtml5, startNative, startOcr]);
 
   useEffect(() => {
-    void startCamera();
+    let cancelled = false;
+    void (async () => {
+      await stopCamera();
+      if (cancelled) return;
+      await startCamera();
+    })();
     return () => {
+      cancelled = true;
       void stopCamera();
-      if (pulseTimer.current) window.clearTimeout(pulseTimer.current);
     };
-  }, [startCamera, stopCamera]);
+  }, [mode, startCamera, stopCamera]);
+
+  useEffect(() => {
+    return () => {
+      if (pulseTimer.current) window.clearTimeout(pulseTimer.current);
+      void terminateVinOcr();
+    };
+  }, []);
+
+  async function changeMode(next: ScanMode) {
+    if (next === mode) return;
+    ocrHits.current = { vin: "", count: 0 };
+    setMode(next);
+  }
 
   async function submitTyped() {
     const vin = normalizeVin(typed);
@@ -244,6 +346,29 @@ export function VinScanner({
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => void changeMode("barcode")}
+          className={`inline-flex min-h-14 items-center justify-center gap-2 rounded-2xl border-2 px-3 text-sm font-extrabold uppercase tracking-wide ${
+            mode === "barcode" ? "border-cyan bg-cyan text-cyan-ink" : "border-line"
+          }`}
+        >
+          <ScanLine className="h-5 w-5" />
+          Barcode
+        </button>
+        <button
+          type="button"
+          onClick={() => void changeMode("ocr")}
+          className={`inline-flex min-h-14 items-center justify-center gap-2 rounded-2xl border-2 px-3 text-sm font-extrabold uppercase tracking-wide ${
+            mode === "ocr" ? "border-cyan bg-cyan text-cyan-ink" : "border-line"
+          }`}
+        >
+          <Type className="h-5 w-5" />
+          OCR Text Scan
+        </button>
+      </div>
+
       <div
         className={`relative overflow-hidden rounded-3xl border-4 bg-black transition-colors ${
           locked ? "border-ok shadow-[0_0_28px_rgba(52,211,153,0.55)]" : "border-white"
@@ -261,9 +386,11 @@ export function VinScanner({
 
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div
-            className={`relative h-[4.75rem] w-[94%] rounded-md border-[3px] ${
+            className={`relative rounded-md border-[3px] ${
               locked ? "border-ok bg-ok/10" : "border-cyan"
-            } shadow-[0_0_0_9999px_rgba(0,0,0,0.42)]`}
+            } shadow-[0_0_0_9999px_rgba(0,0,0,0.42)] ${
+              mode === "ocr" ? "h-24 w-[94%]" : "h-[4.75rem] w-[94%]"
+            }`}
           >
             <span className="absolute -left-0.5 -top-0.5 h-4 w-4 border-l-4 border-t-4 border-white" />
             <span className="absolute -right-0.5 -top-0.5 h-4 w-4 border-r-4 border-t-4 border-white" />
@@ -274,7 +401,15 @@ export function VinScanner({
         </div>
 
         <div className="absolute left-3 top-3 rounded-full bg-black/75 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-white">
-          {cameraOn ? "CODE 39 · 128 · QR" : "Camera off"}
+          {!cameraOn
+            ? "Camera off"
+            : mode === "ocr"
+              ? ocrReady
+                ? ocrBusy
+                  ? "OCR reading…"
+                  : "OCR · VIN text"
+                : "OCR loading…"
+              : "CODE 39 · 128 · QR"}
         </div>
 
         {lockedVin ? (
@@ -292,14 +427,19 @@ export function VinScanner({
         <p className="rounded-2xl border-2 border-alert bg-alert/10 px-3 py-2 text-sm font-bold text-alert">{error}</p>
       ) : (
         <p className="text-sm font-semibold text-muted sunlight:text-slate-600">
-          Fill the white frame with the door-jamb or window-sticker barcode. High-contrast 1D scan — Code 39, Code 128,
-          or QR only.
+          {mode === "ocr"
+            ? ocrHint
+            : "Fill the white frame with the door-jamb or window-sticker barcode. Switch to OCR Text Scan if the barcode is laminated or missing."}
         </p>
       )}
 
       <Field
         label="Active scan"
-        hint={lockedVin ? "Captured — logged to this Scan List." : vinHint(typed) ?? "17 characters. No I, O, or Q."}
+        hint={
+          lockedVin
+            ? "Captured — logged to this Scan List."
+            : vinHint(typed) ?? "17 characters. No I, O, or Q."
+        }
       >
         <TextInput
           ref={inputRef}
@@ -326,10 +466,17 @@ export function VinScanner({
           <Camera className="h-5 w-5" />
           {cameraOn ? "Stop" : "Camera"}
         </Button>
-        <Button variant="line" onClick={() => inputRef.current?.focus()}>
-          <Keyboard className="h-5 w-5" />
-          Type VIN
-        </Button>
+        {mode === "ocr" ? (
+          <Button variant="line" onClick={() => void runOcrFrame(true)} disabled={!cameraOn || ocrBusy}>
+            <Type className="h-5 w-5" />
+            Snap OCR
+          </Button>
+        ) : (
+          <Button variant="line" onClick={() => inputRef.current?.focus()}>
+            <Keyboard className="h-5 w-5" />
+            Type VIN
+          </Button>
+        )}
       </div>
 
       <Button onClick={submitTyped} disabled={busy || typed.length < 17}>

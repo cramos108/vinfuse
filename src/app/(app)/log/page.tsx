@@ -70,7 +70,8 @@ export default function LogPage() {
               <Card className="p-4">
                 <p className="font-mono text-lg font-black tracking-wide text-cyan">{formatVin(scan.vin)}</p>
                 <p className="text-sm font-semibold text-muted sunlight:text-slate-600">
-                  {scan.scannerName} · {scan.source === "barcode" ? "Camera" : "Typed"} ·{" "}
+                  {scan.scannerName} ·{" "}
+                  {scan.source === "barcode" ? "Barcode" : scan.source === "ocr" ? "OCR text" : "Typed"} ·{" "}
                   {new Date(scan.scannedAt).toLocaleString()}
                 </p>
               </Card>

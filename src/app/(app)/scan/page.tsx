@@ -14,7 +14,7 @@ import {
   setActiveLocation,
   startAudit,
 } from "@/lib/store";
-import type { AuditSession, Location, Scan } from "@/lib/types";
+import type { AuditSession, Location, Scan, ScanSource } from "@/lib/types";
 import { formatVin } from "@/lib/vin";
 
 export default function ScanPage() {
@@ -59,7 +59,7 @@ export default function ScanPage() {
   }
 
   const onVin = useCallback(
-    async (vin: string, source: "barcode" | "manual") => {
+    async (vin: string, source: ScanSource) => {
       if (!location || !audit || busy) return;
       setBusy(true);
       try {
