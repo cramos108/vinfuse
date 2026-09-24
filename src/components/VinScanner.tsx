@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, Check, Keyboard, ScanLine, Type, Zap } from "lucide-react";
+import { Camera, Check, Flashlight, FlashlightOff, Keyboard, ScanLine, Type, Zap } from "lucide-react";
 import { Button, Field, TextInput } from "@/components/ui";
 import type { ScanSource } from "@/lib/types";
 import {
@@ -18,6 +18,15 @@ import {
   hasBarcodeDetector,
 } from "@/lib/barcodeNative";
 import {
+  CLOSEUP_CAMERA,
+  CLOSEUP_CAMERA_FLEX,
+  CLOSEUP_CAMERA_OCR,
+  capabilitiesHaveTorch,
+  openRearCamera,
+  setTrackTorch,
+  trackHasTorch,
+} from "@/lib/camera";
+import {
   captureHighResStill,
   enhanceOcrFrame,
   getVinOcrWorker,
@@ -29,36 +38,10 @@ import {
 
 type ScanMode = "barcode" | "ocr";
 
-const CAMERA_VIDEO: MediaTrackConstraints = {
-  facingMode: { ideal: "environment" },
-  width: { ideal: 1920 },
-  height: { ideal: 1080 },
-};
-
-const OCR_CAMERA: MediaTrackConstraints = {
-  facingMode: { ideal: "environment" },
-  width: { ideal: 3840 },
-  height: { ideal: 2160 },
-};
-
 function vinQrbox(viewfinderWidth: number, viewfinderHeight: number) {
   const width = Math.max(240, Math.floor(viewfinderWidth * 0.94));
   const height = Math.max(72, Math.min(110, Math.floor(viewfinderHeight * 0.22)));
   return { width, height };
-}
-
-async function openRearCamera(constraints: MediaTrackConstraints): Promise<MediaStream> {
-  try {
-    return await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: {
-        ...constraints,
-        advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet],
-      },
-    });
-  } catch {
-    return navigator.mediaDevices.getUserMedia({ audio: false, video: constraints });
-  }
 }
 
 export function VinScanner({
@@ -73,7 +56,11 @@ export function VinScanner({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const html5Ref = useRef<{ stop: () => Promise<void> } | null>(null);
+  const html5Ref = useRef<{
+    stop: () => Promise<void>;
+    applyVideoConstraints?: (constraints: MediaTrackConstraints) => Promise<void>;
+    getRunningTrackCapabilities?: () => MediaTrackCapabilities;
+  } | null>(null);
   const timerRef = useRef<number | null>(null);
   const lastRef = useRef<string>("");
   const pulseTimer = useRef<number | null>(null);
@@ -93,6 +80,8 @@ export function VinScanner({
     "Hold the door sticker or dash plate in the frame, then tap Snap OCR for a high-res still.",
   );
   const [ocrBusy, setOcrBusy] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const [torchAvailable, setTorchAvailable] = useState(false);
 
   modeRef.current = mode;
 
@@ -207,6 +196,8 @@ export function VinScanner({
     if (boxRef.current) boxRef.current.innerHTML = "";
     setEngine("off");
     setCameraOn(false);
+    setTorchOn(false);
+    setTorchAvailable(false);
   }, []);
 
   const startHtml5 = useCallback(async () => {
@@ -219,17 +210,19 @@ export function VinScanner({
       formatsToSupport: [
         Html5QrcodeSupportedFormats.CODE_39,
         Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.DATA_MATRIX,
+        Html5QrcodeSupportedFormats.QR_CODE,
       ],
       useBarCodeDetectorIfSupported: true,
     });
     await scanner.start(
-      CAMERA_VIDEO,
+      CLOSEUP_CAMERA_FLEX,
       {
         fps: 15,
         qrbox: vinQrbox,
         aspectRatio: 16 / 9,
         disableFlip: true,
-        videoConstraints: CAMERA_VIDEO,
+        videoConstraints: CLOSEUP_CAMERA_FLEX,
       },
       (text) => {
         void handleRaw(text, "barcode");
@@ -240,6 +233,12 @@ export function VinScanner({
     setEngine("html5");
     setCameraOn(true);
     setError(null);
+    setTorchOn(false);
+    try {
+      setTorchAvailable(capabilitiesHaveTorch(scanner.getRunningTrackCapabilities()));
+    } catch {
+      setTorchAvailable(false);
+    }
   }, [handleRaw]);
 
   const startNative = useCallback(async () => {
@@ -249,7 +248,7 @@ export function VinScanner({
     if (!video || !canvas) return false;
     const detector = await createVinBarcodeDetector();
     if (!detector) return false;
-    const stream = await openRearCamera(CAMERA_VIDEO);
+    const stream = await openRearCamera(CLOSEUP_CAMERA);
     streamRef.current = stream;
     video.srcObject = stream;
     await video.play();
@@ -274,6 +273,8 @@ export function VinScanner({
     setEngine("native");
     setCameraOn(true);
     setError(null);
+    setTorchOn(false);
+    setTorchAvailable(trackHasTorch(stream.getVideoTracks()[0]));
     return true;
   }, [handleRaw]);
 
@@ -284,7 +285,7 @@ export function VinScanner({
     setOcrReady(false);
     await getVinOcrWorker();
     setOcrReady(true);
-    const stream = await openRearCamera(OCR_CAMERA);
+    const stream = await openRearCamera(CLOSEUP_CAMERA_OCR);
     streamRef.current = stream;
     video.srcObject = stream;
     await video.play();
@@ -295,6 +296,8 @@ export function VinScanner({
     setCameraOn(true);
     setError(null);
     setOcrHint("Hold the door sticker or dash plate in the frame, then tap Snap OCR for a high-res still.");
+    setTorchOn(false);
+    setTorchAvailable(trackHasTorch(stream.getVideoTracks()[0]));
     void runOcrFrame(true);
   }, [runOcrFrame]);
 
@@ -345,6 +348,34 @@ export function VinScanner({
     const ok = await handleRaw(vin, "manual");
     if (!ok) setError(vinHint(vin) ?? "Invalid VIN.");
     else setError(null);
+  }
+
+  async function toggleTorch() {
+    const next = !torchOn;
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (track && trackHasTorch(track)) {
+      const ok = await setTrackTorch(track, next);
+      if (ok) {
+        setTorchOn(next);
+        setError(null);
+        return;
+      }
+    }
+    const html5 = html5Ref.current;
+    if (html5?.applyVideoConstraints) {
+      try {
+        await html5.applyVideoConstraints({
+          advanced: [{ torch: next }],
+        } as unknown as MediaTrackConstraints);
+        setTorchOn(next);
+        setError(null);
+        return;
+      } catch {
+        /* fall through */
+      }
+    }
+    setTorchAvailable(false);
+    setError("This camera has no flashlight. Use the phone's system torch if available.");
   }
 
   const locked = Boolean(lockedVin);
@@ -415,9 +446,32 @@ export function VinScanner({
                   : "OCR · VIN text"
                 : "OCR loading…"
               : engine === "native"
-                ? "Native CODE 39 · 128"
-                : "CODE 39 · 128"}
+                ? "Native 39 · 128 · DM · QR"
+                : "CODE 39 · 128 · DM · QR"}
         </div>
+
+        {cameraOn ? (
+          <button
+            type="button"
+            onClick={() => void toggleTorch()}
+            aria-pressed={torchOn}
+            aria-label={torchOn ? "Turn flashlight off" : "Turn flashlight on"}
+            title={
+              torchOn
+                ? "Flashlight on"
+                : torchAvailable
+                  ? "Flashlight — cut shadows and laminate glare"
+                  : "Flashlight (if this camera has a torch)"
+            }
+            className={`absolute right-3 top-3 z-10 grid h-14 w-14 place-items-center rounded-2xl border-2 ${
+              torchOn
+                ? "border-warn bg-warn text-navy"
+                : "border-white bg-black/80 text-white"
+            } disabled:opacity-40`}
+          >
+            {torchOn ? <Flashlight className="h-7 w-7" /> : <FlashlightOff className="h-7 w-7" />}
+          </button>
+        ) : null}
 
         {lockedVin ? (
           <div className="absolute inset-x-3 bottom-3 flex items-center gap-3 rounded-2xl border-2 border-ok bg-ok px-3 py-2 text-cyan-ink">
@@ -436,9 +490,7 @@ export function VinScanner({
         <p className="text-sm font-semibold text-muted sunlight:text-slate-600">
           {mode === "ocr"
             ? ocrHint
-            : engine === "native"
-              ? "Hardware barcode scan (CODE 39 / CODE 128). Fill the frame with the door-jamb or window-sticker barcode."
-              : "Fill the white frame with the door-jamb or window-sticker barcode. Switch to OCR Text Scan if the barcode is laminated or missing."}
+            : "Fill the frame with the door-jamb or window-sticker barcode (Code 39, Code 128, Data Matrix, or QR). Use the flashlight for shadows and laminate glare."}
         </p>
       )}
 

@@ -14,8 +14,8 @@ type DetectorCtor = {
   getSupportedFormats?: () => Promise<string[]>;
 };
 
-/** Physical VIN barcodes on door jambs and window stickers. */
-export const NATIVE_VIN_FORMATS = ["code_39", "code_128"] as const;
+/** Door-jamb VIN codes: 1D (Code 39/128) and 2D squares (Data Matrix / QR). */
+export const NATIVE_VIN_FORMATS = ["code_39", "code_128", "data_matrix", "qr_code"] as const;
 
 export function hasBarcodeDetector(): boolean {
   return typeof window !== "undefined" && "BarcodeDetector" in window;
@@ -46,9 +46,13 @@ export async function createVinBarcodeDetector(): Promise<Detector | null> {
     return new Ctor({ formats });
   } catch {
     try {
-      return new Ctor({ formats: ["code_39"] });
+      return new Ctor({ formats: ["code_39", "code_128"] });
     } catch {
-      return null;
+      try {
+        return new Ctor({ formats: ["code_39"] });
+      } catch {
+        return null;
+      }
     }
   }
 }
