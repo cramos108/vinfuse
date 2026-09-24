@@ -5,8 +5,8 @@ import { Camera, Check, Flashlight, FlashlightOff, Keyboard, ScanLine, Type, Zap
 import { Button, Field, TextInput } from "@/components/ui";
 import type { ScanSource } from "@/lib/types";
 import {
+  cleanOcrVinCandidate,
   extractVin,
-  firstValidVin,
   formatVin,
   isValidVin,
   normalizeVin,
@@ -127,13 +127,19 @@ export function VinScanner({
       setOcrHint("Reading VIN from enhanced snapshot…");
       const result = await recognizeVinFromCanvas(enhanced, { wait: true, retryBlock: true });
       if (modeRef.current !== "ocr") return;
-      const vin = firstValidVin(result.raw) ?? result.vin;
-      if (!vin || !isValidVin(vin)) {
-        setOcrHint("No 17-character VIN in that capture. Fill the frame with the dash plate and try again.");
+      const cleaned = cleanOcrVinCandidate(result.raw || result.vin || "");
+      setTyped(cleaned.display);
+      if (cleaned.vin && isValidVin(cleaned.vin)) {
+        setOcrHint("VIN locked — logged to this Walk Scan List.");
+        await handleRaw(cleaned.vin, "ocr");
         return;
       }
-      setOcrHint("VIN locked — logged to this Walk Scan List.");
-      await handleRaw(vin, "ocr");
+      const n = cleaned.display.length;
+      setOcrHint(
+        n
+          ? `Cleaned OCR is ${n}/17 (${cleaned.display}). Capture again or edit Active scan.`
+          : "No VIN characters found. Fill the frame with the dash plate and capture again.",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Dashboard VIN capture failed.");
     } finally {

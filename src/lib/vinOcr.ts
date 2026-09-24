@@ -1,6 +1,8 @@
 "use client";
 
-import { extractVinFromOcr, VIN_OCR_WHITELIST } from "./vin";
+import { cleanOcrVinCandidate, extractVinFromOcr, VIN_OCR_WHITELIST } from "./vin";
+
+const VIN_BLACKLIST = "IOQioq!@#$%^&*()[]{}.,;:'\"<>?/\\+=~`_";
 
 export type OcrVinResult = {
   vin: string | null;
@@ -42,10 +44,16 @@ export async function getVinOcrWorker(): Promise<TessWorker> {
     psmBlock = PSM.SINGLE_BLOCK;
     const next = (await createWorker("eng", 1, {
       logger: () => undefined,
+    }, {
+      load_system_dawg: "0",
+      load_freq_dawg: "0",
+      load_punc_dawg: "0",
     })) as unknown as TessWorker;
     await next.setParameters({
       tessedit_char_whitelist: VIN_OCR_WHITELIST,
+      tessedit_char_blacklist: VIN_BLACKLIST,
       tessedit_pageseg_mode: psmLine,
+      user_defined_dpi: "300",
     });
     worker = next;
     return next;
@@ -74,24 +82,31 @@ export async function recognizeVinFromCanvas(
   recognizing = true;
   try {
     const ocr = await getVinOcrWorker();
+    const vinParams = {
+      tessedit_char_whitelist: VIN_OCR_WHITELIST,
+      tessedit_char_blacklist: VIN_BLACKLIST,
+    };
+    await ocr.setParameters({ ...vinParams, tessedit_pageseg_mode: psmLine });
     const first = await ocr.recognize(canvas);
     const firstText = first.data.text ?? "";
-    const firstVin = extractVinFromOcr(firstText);
-    if (firstVin || !options?.retryBlock) {
+    const firstClean = cleanOcrVinCandidate(firstText);
+    if (firstClean.vin || !options?.retryBlock) {
       return {
-        vin: firstVin,
+        vin: firstClean.vin ?? extractVinFromOcr(firstText),
         confidence: first.data.confidence ?? 0,
-        raw: firstText.replace(/\s+/g, ""),
+        raw: firstClean.display || firstText.replace(/\s+/g, ""),
       };
     }
-    await ocr.setParameters({ tessedit_pageseg_mode: psmBlock });
+    await ocr.setParameters({ ...vinParams, tessedit_pageseg_mode: psmBlock });
     const second = await ocr.recognize(canvas);
-    await ocr.setParameters({ tessedit_pageseg_mode: psmLine });
+    await ocr.setParameters({ ...vinParams, tessedit_pageseg_mode: psmLine });
     const secondText = second.data.text ?? "";
+    const combined = cleanOcrVinCandidate(`${firstText}\n${secondText}`);
+    const secondClean = cleanOcrVinCandidate(secondText);
     return {
-      vin: extractVinFromOcr(secondText) ?? extractVinFromOcr(`${firstText}\n${secondText}`),
+      vin: secondClean.vin ?? combined.vin ?? extractVinFromOcr(secondText),
       confidence: Math.max(first.data.confidence ?? 0, second.data.confidence ?? 0),
-      raw: secondText.replace(/\s+/g, "") || firstText.replace(/\s+/g, ""),
+      raw: secondClean.display || combined.display || secondText.replace(/\s+/g, ""),
     };
   } finally {
     recognizing = false;
@@ -140,24 +155,66 @@ function applyGreyscaleContrast(canvas: HTMLCanvasElement) {
   ctx.putImageData(img, 0, 0);
 }
 
-function sharpenLuma(gray: Float32Array, w: number, h: number): Float32Array {
+function percentileStretch(gray: Float32Array, lowPct = 6, highPct = 90): void {
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < gray.length; i++) hist[Math.max(0, Math.min(255, Math.round(gray[i])))] += 1;
+  const n = gray.length;
+  const loTarget = (n * lowPct) / 100;
+  const hiTarget = (n * highPct) / 100;
+  let acc = 0;
+  let lo = 0;
+  let hi = 255;
+  let loSet = false;
+  for (let v = 0; v < 256; v++) {
+    acc += hist[v];
+    if (!loSet && acc >= loTarget) {
+      lo = v;
+      loSet = true;
+    }
+    if (acc >= hiTarget) {
+      hi = v;
+      break;
+    }
+  }
+  const range = Math.max(1, hi - lo);
+  for (let i = 0; i < gray.length; i++) {
+    let y = ((gray[i] - lo) / range) * 255;
+    y = (y - 128) * 2.35 + 128;
+    gray[i] = y < 0 ? 0 : y > 255 ? 255 : y;
+  }
+}
+
+function median3(gray: Float32Array, w: number, h: number): Float32Array {
   const out = new Float32Array(gray.length);
+  const win = new Float32Array(9);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const i = y * w + x;
-      const c = gray[i];
-      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) {
-        out[i] = c;
-        continue;
+      let n = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= h) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx;
+          if (xx < 0 || xx >= w) continue;
+          win[n++] = gray[yy * w + xx];
+        }
       }
-      const val = 5 * c - gray[i - 1] - gray[i + 1] - gray[i - w] - gray[i + w];
-      out[i] = val < 0 ? 0 : val > 255 ? 255 : val;
+      for (let i = 1; i < n; i++) {
+        const val = win[i];
+        let j = i - 1;
+        while (j >= 0 && win[j] > val) {
+          win[j + 1] = win[j];
+          j -= 1;
+        }
+        win[j + 1] = val;
+      }
+      out[y * w + x] = win[(n - 1) >> 1];
     }
   }
   return out;
 }
 
-function adaptiveBinarize(gray: Float32Array, w: number, h: number, radius = 18, c = 10): Uint8ClampedArray {
+function dynamicThresholdDarkOnLight(gray: Float32Array, w: number, h: number, radius = 28, c = 16): Uint8ClampedArray {
   const integW = w + 1;
   const integ = new Float64Array(integW * (h + 1));
   for (let y = 1; y <= h; y++) {
@@ -168,7 +225,6 @@ function adaptiveBinarize(gray: Float32Array, w: number, h: number, radius = 18,
     }
   }
   const out = new Uint8ClampedArray(w * h);
-  let black = 0;
   for (let y = 0; y < h; y++) {
     const y0 = Math.max(0, y - radius);
     const y1 = Math.min(h - 1, y + radius);
@@ -182,20 +238,55 @@ function adaptiveBinarize(gray: Float32Array, w: number, h: number, radius = 18,
         integ[(y1 + 1) * integW + x0] +
         integ[y0 * integW + x0];
       const mean = sum / count;
-      const on = gray[y * w + x] >= mean - c;
-      out[y * w + x] = on ? 255 : 0;
-      if (!on) black += 1;
+      out[y * w + x] = gray[y * w + x] < mean - c ? 0 : 255;
     }
   }
-  if (black > out.length * 0.55) {
-    for (let i = 0; i < out.length; i++) out[i] = out[i] ? 0 : 255;
+  return out;
+}
+
+function morphOpen(bw: Uint8ClampedArray, w: number, h: number): Uint8ClampedArray {
+  const er = new Uint8ClampedArray(bw.length);
+  const out = new Uint8ClampedArray(bw.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let keep = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= h) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx;
+          if (xx < 0 || xx >= w) continue;
+          if (bw[yy * w + xx] === 0) keep += 1;
+        }
+      }
+      er[y * w + x] = keep === 9 ? 0 : 255;
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let ink = false;
+      for (let dy = -1; dy <= 1 && !ink; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= h) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx;
+          if (xx < 0 || xx >= w) continue;
+          if (er[yy * w + xx] === 0) {
+            ink = true;
+            break;
+          }
+        }
+      }
+      out[y * w + x] = ink ? 0 : 255;
+    }
   }
   return out;
 }
 
 /**
- * Windshield / dashboard VIN plate: boost contrast, sharpen edges, then
- * adaptive black-and-white to kill glare and patterned dash backgrounds.
+ * Dashboard VIN through glass: grayscale, crush windshield glare with a heavy
+ * percentile stretch, median-filter dot-matrix speckle, then dynamic threshold
+ * so only dark stamped characters remain on the light metal plate.
  */
 export function enhanceDashboardStill(
   source: CanvasImageSource,
@@ -220,23 +311,13 @@ export function enhanceDashboardStill(
 
   const img = ctx.getImageData(0, 0, outW, outH);
   const data = img.data;
-  let min = 255;
-  let max = 0;
   const gray = new Float32Array(outW * outH);
   for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
-    const y = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-    gray[p] = y;
-    if (y < min) min = y;
-    if (y > max) max = y;
+    gray[p] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
   }
-  const range = Math.max(1, max - min);
-  for (let p = 0; p < gray.length; p++) {
-    let y = ((gray[p] - min) / range) * 255;
-    y = (y - 128) * 2.05 + 128;
-    gray[p] = y < 0 ? 0 : y > 255 ? 255 : y;
-  }
-  const sharp = sharpenLuma(gray, outW, outH);
-  const bw = adaptiveBinarize(sharp, outW, outH);
+  percentileStretch(gray, 6, 90);
+  const despeckled = median3(gray, outW, outH);
+  const bw = morphOpen(dynamicThresholdDarkOnLight(despeckled, outW, outH), outW, outH);
   for (let p = 0, i = 0; p < bw.length; p++, i += 4) {
     data[i] = data[i + 1] = data[i + 2] = bw[p];
     data[i + 3] = 255;

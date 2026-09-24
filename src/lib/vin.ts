@@ -22,8 +22,60 @@ export function correctOcrVinText(raw: string): string {
   return raw
     .toUpperCase()
     .replace(/[^A-Z0-9|]/g, "")
-    .replace(/[IOQ]/g, (ch) => (ch === "I" ? "1" : "0"))
+    .replace(/I/g, "1")
+    .replace(/[OQ]/g, "0")
     .replace(/\|/g, "1");
+}
+
+const CONFUSION_SWAPS: Array<[string, string]> = [
+  ["5", "S"],
+  ["S", "5"],
+  ["8", "B"],
+  ["B", "8"],
+  ["2", "Z"],
+  ["Z", "2"],
+  ["6", "G"],
+  ["G", "6"],
+  ["0", "D"],
+  ["D", "0"],
+];
+
+function rescueCheckDigit(vin: string): string {
+  if (vin.length !== 17) return vin;
+  if (hasValidVinCheckDigit(vin)) return vin;
+  const hits: string[] = [];
+  for (let i = 0; i < 17; i++) {
+    for (const [from, to] of CONFUSION_SWAPS) {
+      if (vin[i] !== from) continue;
+      const next = vin.slice(0, i) + to + vin.slice(i + 1);
+      if (isValidVin(next) && hasValidVinCheckDigit(next)) hits.push(next);
+    }
+  }
+  return hits.length === 1 ? hits[0] : vin;
+}
+
+/**
+ * Strict 17-character guard: strip illegal symbols, map I→1 / O|Q→0 / S↔5 confusions,
+ * and return text to show immediately plus a VIN when the pattern matches.
+ */
+export function cleanOcrVinCandidate(raw: string): { display: string; vin: string | null } {
+  const mapped = correctOcrVinText(raw);
+  const match = firstValidVin(mapped);
+  if (match) {
+    const rescued = rescueCheckDigit(match);
+    return { display: rescued, vin: rescued };
+  }
+  if (mapped.length === 17 && isValidVin(mapped)) {
+    const rescued = rescueCheckDigit(mapped);
+    return { display: rescued, vin: rescued };
+  }
+  if (mapped.length > 17) {
+    const windowed = mapped.match(VIN_CHUNK) ?? [];
+    const best = windowed.map(rescueCheckDigit).find((v) => isValidVin(v)) ?? null;
+    if (best) return { display: best, vin: best };
+    return { display: mapped.slice(0, 17), vin: null };
+  }
+  return { display: mapped, vin: null };
 }
 
 export function extractVin(raw: string): string | null {
