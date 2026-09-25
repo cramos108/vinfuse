@@ -65,4 +65,16 @@ html.sunlight body {
     background: #ffffff !important;
     color: #020817 !important;
   }
+
+  header,
+  nav,
+  .print-hidden {
+    display: none !important;
+  }
+
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
 }

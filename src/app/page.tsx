@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { Check, ScanLine, MapPin, FileSpreadsheet, Users } from "lucide-react";
 import { Logo } from "@/components/Logo";
@@ -65,6 +66,19 @@ export default function LandingPage() {
                 {APP_NAME} is the physical inventory audit app for Buy Here Pay Here lots. Scan barcodes in the sun,
                 build a Scan List on the walk, and (on Pro) compare it to your DMS Master List in minutes.
               </p>
+              <figure className="mt-6 overflow-hidden rounded-3xl border-2 border-slate-200 bg-white shadow-sm">
+                <Image
+                  src="/images/window-vin-sticker.jpg"
+                  alt="Row of cars on a dealership lot with a printed VIN barcode sticker on the side window, the preferred VinFuse scan target."
+                  width={1600}
+                  height={900}
+                  className="h-auto w-full object-cover"
+                  priority
+                />
+                <figcaption className="px-4 py-3 text-sm font-semibold text-slate-600">
+                  Preferred target: the printed VIN barcode on the side window or door jamb.
+                </figcaption>
+              </figure>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link
                   href="/signup"

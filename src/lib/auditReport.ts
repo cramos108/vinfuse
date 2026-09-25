@@ -93,5 +93,5 @@ export function printAuditReport(title: string) {
   window.print();
   window.setTimeout(() => {
     document.title = previous;
-  }, 500);
+  }, 800);
 }

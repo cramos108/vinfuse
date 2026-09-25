@@ -180,20 +180,17 @@ export default function AuditPage() {
 
         {error ? <p className="font-bold text-alert">{error}</p> : null}
 
-        <div className="grid grid-cols-2 gap-3">
-          <Button className="w-full text-xs" onClick={handlePrint} disabled={!report}>
-            <Printer className="h-5 w-5" />
-            Print / Save PDF
-          </Button>
-          <Button variant="line" className="w-full text-xs" onClick={handleExport} disabled={!report}>
-            <FileDown className="h-5 w-5" />
-            Export CSV
-          </Button>
-        </div>
+        <Button className="w-full" onClick={handlePrint} disabled={!report}>
+          <Printer className="h-5 w-5" />
+          Print / Export Walk Report
+        </Button>
+        <Button variant="line" className="w-full text-xs" onClick={handleExport} disabled={!report}>
+          <FileDown className="h-5 w-5" />
+          Export CSV
+        </Button>
         <p className="text-xs font-semibold text-muted sunlight:text-slate-600">
-          Print / Save PDF opens the system dialog with the Scan List and discrepancy report. Choose{" "}
-          <span className="text-white sunlight:text-ink">Save as PDF</span> for month-end files. Export CSV is the same
-          report as a spreadsheet.
+          Print / Export Walk Report opens the browser print dialog (Save as PDF for month-end files). Export CSV is the
+          same Scan List and discrepancy buckets as a spreadsheet.
         </p>
 
         <div className="grid grid-cols-2 gap-3">
