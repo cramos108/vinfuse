@@ -88,7 +88,7 @@ export default function ScanPage() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Scan List · lot walk</p>
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Side-window barcode</p>
         <h1 className="text-3xl font-black">Scan VIN</h1>
         <p className="font-semibold text-muted sunlight:text-slate-600">
           {session.user.fullName} · {session.dealership.name}

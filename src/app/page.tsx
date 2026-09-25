@@ -10,7 +10,7 @@ const FEATURES = [
   {
     icon: ScanLine,
     title: "Sunlight-ready VIN scanner",
-    body: "Large, high-contrast controls. Camera barcode + typed VIN fallback for every unit on the lot.",
+    body: "Large, high-contrast controls. Scan the printed VIN barcode on the side window, or type the VIN.",
   },
   {
     icon: MapPin,
@@ -64,8 +64,9 @@ export default function LandingPage() {
                 </span>
               </h1>
               <p className="mt-5 max-w-xl text-lg font-medium text-slate-600">
-                {APP_NAME} is the physical inventory audit app for Buy Here Pay Here lots. Scan barcodes in the sun,
-                build a Scan List on the walk, and (on Pro) compare it to your DMS Master List in minutes.
+                {APP_NAME} is the physical inventory audit app for Buy Here Pay Here lots. Scan the printed VIN barcode
+                on the side window, build a Scan List on the walk, and (on Pro) compare it to your DMS Master List in
+                minutes.
               </p>
               <figure className="mt-6 overflow-hidden rounded-3xl border-2 border-slate-200 bg-white shadow-sm">
                 <Image
@@ -77,21 +78,21 @@ export default function LandingPage() {
                   priority
                 />
                 <figcaption className="px-4 py-3 text-sm font-semibold text-slate-600">
-                  Preferred target: the printed VIN barcode on the side window or door jamb.
+                  Preferred target: the printed VIN barcode on the side window.
                 </figcaption>
               </figure>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href="/signup"
+                  href="/login?demo=1"
                   className="inline-flex min-h-14 items-center justify-center rounded-2xl bg-cyan px-6 text-base font-extrabold uppercase tracking-wide text-cyan-ink shadow-[0_0_24px_rgba(34,211,238,0.35)]"
                 >
-                  Start scanning free
+                  Try the Suncoast demo lot
                 </Link>
                 <Link
-                  href="/login"
+                  href="/signup"
                   className="inline-flex min-h-14 items-center justify-center rounded-2xl border-2 border-slate-300 px-6 text-base font-extrabold uppercase tracking-wide"
                 >
-                  Sign in
+                  Create a lot
                 </Link>
               </div>
               <p className="mt-4 text-sm font-semibold text-slate-500">

@@ -326,7 +326,7 @@ export function enhanceDashboardStill(
   return canvas;
 }
 
-/** Crop the VIN band, convert to greyscale, and stretch contrast for door/dash plates. */
+/** Crop the VIN band, convert to greyscale, and stretch contrast for side-window stickers. */
 export function preprocessVinSnapshot(
   source: CanvasImageSource,
   canvas: HTMLCanvasElement,

@@ -292,7 +292,7 @@ export function VinScanner({
               torchOn
                 ? "Flashlight on"
                 : torchAvailable
-                  ? "Flashlight — cut shadows and laminate glare"
+                  ? "Flashlight — cut shadows and window-sticker glare"
                   : "Flashlight (if this camera has a torch)"
             }
             className={`absolute right-3 top-3 z-10 grid h-14 w-14 place-items-center rounded-2xl border-2 ${
@@ -318,7 +318,7 @@ export function VinScanner({
         <p className="rounded-2xl border-2 border-alert bg-alert/10 px-3 py-2 text-sm font-bold text-alert">{error}</p>
       ) : (
         <p className="text-sm font-semibold text-muted sunlight:text-slate-600">
-          Aim at the door-jamb or side-window VIN barcode. Use Type VIN if the sticker will not lock.
+          Aim at the printed VIN barcode on the side window. Use Type VIN if the sticker will not lock.
         </p>
       )}
 

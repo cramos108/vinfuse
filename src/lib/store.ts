@@ -119,17 +119,28 @@ function writeActiveLocationId(id: string) {
   emit();
 }
 
+const USER_KEY = "vinfuse.user";
+
 function currentUserId(): string | null {
   try {
-    return sessionStorage.getItem("vinfuse.user");
+    return sessionStorage.getItem(USER_KEY) ?? localStorage.getItem(USER_KEY);
   } catch {
     return null;
   }
 }
 
 function setCurrentUserId(id: string | null) {
-  if (id) sessionStorage.setItem("vinfuse.user", id);
-  else sessionStorage.removeItem("vinfuse.user");
+  try {
+    if (id) {
+      sessionStorage.setItem(USER_KEY, id);
+      localStorage.setItem(USER_KEY, id);
+    } else {
+      sessionStorage.removeItem(USER_KEY);
+      localStorage.removeItem(USER_KEY);
+    }
+  } catch {
+    /* private mode */
+  }
 }
 
 function sessionFromDb(db: LocalDb, userId: string): AuthSession | null {
@@ -217,15 +228,55 @@ type SignUpInput = {
   inviteCode?: string;
 };
 
-export async function signUp(input: SignUpInput): Promise<AuthSession> {
-  const email = input.email.trim().toLowerCase();
-  const fullName = input.fullName.trim();
-  const dealershipName = input.dealershipName.trim();
-  const inviteCode = input.inviteCode?.trim().toUpperCase();
-  if (!email || !input.password || !fullName) throw new Error("Fill in name, email, and password.");
-  if (input.password.length < 6) throw new Error("Password must be at least 6 characters.");
+export type LocalAccount = {
+  id: string;
+  fullName: string;
+  email: string;
+  dealershipName: string;
+  role: Role;
+};
 
+export function listLocalAccounts(): LocalAccount[] {
+  if (supabaseConfigured) return [];
+  const db = loadDb();
+  return db.profiles.map((profile) => ({
+    id: profile.id,
+    fullName: profile.fullName,
+    email: profile.email,
+    dealershipName: db.dealerships.find((d) => d.id === profile.dealershipId)?.name ?? "Lot",
+    role: profile.role,
+  }));
+}
+
+export async function continueLocal(profileId: string): Promise<AuthSession> {
+  const db = loadDb();
+  const session = sessionFromDb(db, profileId);
+  if (!session) throw new Error("That lot is not on this device.");
+  setCurrentUserId(profileId);
+  emit();
+  return session;
+}
+
+function slugId(value: string): string {
+  const slug = value.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 12);
+  return slug || "lot";
+}
+
+export async function signUp(input: SignUpInput): Promise<AuthSession> {
+  const fullName = input.fullName.trim();
+  const inviteCode = input.inviteCode?.trim().toUpperCase();
+  let dealershipName = input.dealershipName.trim();
   const sb = getSupabase();
+  if (!fullName) throw new Error("Enter your name.");
+  if (sb) {
+    if (!input.email.trim() || !input.password) throw new Error("Email and password are required for cloud login.");
+    if (input.password.length < 6) throw new Error("Password must be at least 6 characters.");
+  }
+  const email =
+    input.email.trim().toLowerCase() || `${slugId(fullName)}.${Date.now().toString(36)}@local.vinfuse`;
+  const password = input.password || "lot";
+  if (!inviteCode && !dealershipName) dealershipName = `${fullName}'s lot`;
+
   if (sb) {
     const { error } = await sb.auth.signUp({
       email,
