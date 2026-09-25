@@ -37,13 +37,13 @@ export default function LandingPage() {
           <Logo />
           <div className="flex items-center gap-2">
             <Link href="/login" className="hidden min-h-11 items-center px-3 text-sm font-extrabold uppercase tracking-wide sm:inline-flex">
-              Sign in
+              Manager sign in
             </Link>
             <Link
-              href="/signup"
+              href="/scan"
               className="inline-flex min-h-11 items-center rounded-xl bg-cyan px-4 text-sm font-extrabold uppercase tracking-wide text-cyan-ink"
             >
-              Start free
+              Start scanning
             </Link>
           </div>
         </div>
@@ -83,20 +83,20 @@ export default function LandingPage() {
               </figure>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href="/login"
+                  href="/scan"
                   className="inline-flex min-h-14 items-center justify-center rounded-2xl bg-cyan px-6 text-base font-extrabold uppercase tracking-wide text-cyan-ink shadow-[0_0_24px_rgba(34,211,238,0.35)]"
                 >
                   Start scanning
                 </Link>
                 <Link
-                  href="/signup"
+                  href="/login"
                   className="inline-flex min-h-14 items-center justify-center rounded-2xl border-2 border-slate-300 px-6 text-base font-extrabold uppercase tracking-wide"
                 >
-                  Create a lot
+                  Manager sign in
                 </Link>
               </div>
               <p className="mt-4 text-sm font-semibold text-slate-500">
-                Unlimited VIN scans on Free. No credit card. Add to your home screen.
+                Porters scan on this device with no account. Managers sign in for Pro, extra lots, and team.
               </p>
             </div>
             <div className="rounded-[2rem] border-2 border-slate-200 bg-navy p-5 text-white shadow-2xl">

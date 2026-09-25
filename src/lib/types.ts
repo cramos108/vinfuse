@@ -26,9 +26,12 @@ export type Profile = {
   role: Role;
 };
 
+export type AuthKind = "local" | "cloud";
+
 export type AuthSession = {
   user: Profile;
   dealership: Dealership;
+  kind: AuthKind;
 };
 
 export type AuditSession = {

@@ -38,7 +38,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Logo />
           <div className="flex items-center gap-2">
             <span className="rounded-full border-2 border-cyan px-2.5 py-0.5 text-[11px] font-extrabold uppercase tracking-wider text-cyan">
-              {planLabel(session.dealership.plan)}
+              {session.kind === "local" ? "Device" : planLabel(session.dealership.plan)}
             </span>
             <button
               type="button"

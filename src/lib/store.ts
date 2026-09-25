@@ -1,6 +1,7 @@
 "use client";
 
 import { parseInventoryCsv } from "./csv";
+import { clearAllWalkHistory } from "./walkHistory";
 import { canAddLocation, canImportCsv, canInviteTeam, isPro } from "./plan";
 import { reconcileInventory } from "./reconcile";
 import { getSupabase, supabaseConfigured } from "./supabase";
@@ -26,6 +27,7 @@ const SUN_KEY = "vinfuse.sunlight";
 const LOC_KEY = "vinfuse.activeLocation";
 const DEMO_EMAIL = "demo@vinfuse.app";
 const DEMO_PASSWORD = "demo1234";
+const DEVICE_EMAIL = "device@local.vinfuse";
 
 type LocalDb = {
   dealerships: Dealership[];
@@ -148,7 +150,7 @@ function sessionFromDb(db: LocalDb, userId: string): AuthSession | null {
   if (!user) return null;
   const dealership = db.dealerships.find((d) => d.id === user.dealershipId);
   if (!dealership) return null;
-  return { user, dealership };
+  return { user, dealership, kind: "local" };
 }
 
 export function getLocalSession(): AuthSession | null {
@@ -157,38 +159,86 @@ export function getLocalSession(): AuthSession | null {
   return sessionFromDb(loadDb(), id);
 }
 
+export function ensureLocalWorkspace(): AuthSession {
+  const existing = getLocalSession();
+  if (existing) return existing;
+  const db = loadDb();
+  let profile = db.profiles.find((p) => p.email === DEVICE_EMAIL);
+  if (!profile) {
+    const dealer: Dealership = {
+      id: uid(),
+      name: "This device",
+      plan: "free",
+      createdAt: now(),
+    };
+    const location: Location = {
+      id: uid(),
+      dealershipId: dealer.id,
+      name: "Main Lot",
+      kind: "sales_lot",
+    };
+    profile = {
+      id: uid(),
+      dealershipId: dealer.id,
+      email: DEVICE_EMAIL,
+      fullName: "Lot porter",
+      role: "porter",
+    };
+    db.dealerships.push(dealer);
+    db.locations.push(location);
+    db.profiles.push(profile);
+    db.passwords[profile.id] = "lot";
+    writeActiveLocationId(location.id);
+    saveDb(db);
+  } else {
+    setCurrentUserId(profile.id);
+  }
+  setCurrentUserId(profile.id);
+  const session = sessionFromDb(loadDb(), profile.id);
+  if (!session) throw new Error("Could not open the on-device workspace.");
+  emit();
+  return session;
+}
+
 export async function getSession(): Promise<AuthSession | null> {
   const sb = getSupabase();
-  if (!sb) return getLocalSession();
-  const { data } = await sb.auth.getUser();
-  if (!data.user) return null;
-  const { data: profile } = await sb
-    .from("profiles")
-    .select("id, dealership_id, email, full_name, role")
-    .eq("id", data.user.id)
-    .maybeSingle();
-  if (!profile) return null;
-  const { data: dealer } = await sb
-    .from("dealerships")
-    .select("id, name, plan, created_at")
-    .eq("id", profile.dealership_id)
-    .maybeSingle();
-  if (!dealer) return null;
-  return {
-    user: {
-      id: profile.id,
-      dealershipId: profile.dealership_id,
-      email: profile.email,
-      fullName: profile.full_name,
-      role: profile.role,
-    },
-    dealership: {
-      id: dealer.id,
-      name: dealer.name,
-      plan: dealer.plan,
-      createdAt: dealer.created_at,
-    },
-  };
+  if (sb) {
+    const { data } = await sb.auth.getUser();
+    if (data.user) {
+      const { data: profile } = await sb
+        .from("profiles")
+        .select("id, dealership_id, email, full_name, role")
+        .eq("id", data.user.id)
+        .maybeSingle();
+      if (profile) {
+        const { data: dealer } = await sb
+          .from("dealerships")
+          .select("id, name, plan, created_at")
+          .eq("id", profile.dealership_id)
+          .maybeSingle();
+        if (dealer) {
+          return {
+            user: {
+              id: profile.id,
+              dealershipId: profile.dealership_id,
+              email: profile.email,
+              fullName: profile.full_name,
+              role: profile.role,
+            },
+            dealership: {
+              id: dealer.id,
+              name: dealer.name,
+              plan: dealer.plan,
+              createdAt: dealer.created_at,
+            },
+            kind: "cloud",
+          };
+        }
+      }
+    }
+  }
+  if (typeof window === "undefined") return null;
+  return ensureLocalWorkspace();
 }
 
 export async function signIn(email: string, password: string): Promise<AuthSession> {
@@ -217,7 +267,35 @@ export async function signOut() {
   const sb = getSupabase();
   if (sb) await sb.auth.signOut();
   setCurrentUserId(null);
-  emit();
+  if (typeof window !== "undefined") ensureLocalWorkspace();
+  else emit();
+}
+
+export async function requestPasswordReset(email: string) {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Password reset is for manager accounts connected to Supabase.");
+  const trimmed = email.trim();
+  if (!trimmed) throw new Error("Enter the manager email.");
+  const { error } = await sb.auth.resetPasswordForEmail(trimmed, {
+    redirectTo: `${window.location.origin}/reset-password`,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function updatePassword(password: string) {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Password reset is for manager accounts connected to Supabase.");
+  if (password.length < 6) throw new Error("Password must be at least 6 characters.");
+  const { error } = await sb.auth.updateUser({ password });
+  if (error) throw new Error(error.message);
+}
+
+export function wipeLocalWalkData(dealershipId: string) {
+  clearAllWalkHistory();
+  const db = loadDb();
+  db.scans = db.scans.filter((s) => s.dealershipId !== dealershipId);
+  db.auditSessions = db.auditSessions.filter((s) => s.dealershipId !== dealershipId);
+  saveDb(db);
 }
 
 type SignUpInput = {
@@ -280,7 +358,7 @@ export async function signUp(input: SignUpInput): Promise<AuthSession> {
   if (sb) {
     const { error } = await sb.auth.signUp({
       email,
-      password: input.password,
+      password,
       options: {
         data: {
           full_name: fullName,
@@ -313,7 +391,7 @@ export async function signUp(input: SignUpInput): Promise<AuthSession> {
     };
     invite.usedAt = now();
     db.profiles.push(profile);
-    db.passwords[profile.id] = input.password;
+    db.passwords[profile.id] = password;
     setCurrentUserId(profile.id);
     saveDb(db);
     const session = sessionFromDb(db, profile.id);
@@ -344,11 +422,11 @@ export async function signUp(input: SignUpInput): Promise<AuthSession> {
   db.dealerships.push(dealer);
   db.locations.push(location);
   db.profiles.push(profile);
-  db.passwords[profile.id] = input.password;
+  db.passwords[profile.id] = password;
   setCurrentUserId(profile.id);
   writeActiveLocationId(location.id);
   saveDb(db);
-  return { user: profile, dealership: dealer };
+  return sessionFromDb(db, profile.id)!;
 }
 
 function seedDemo(db: LocalDb): Profile {
@@ -970,6 +1048,9 @@ export async function createInvite(
 
 export async function setPlan(session: AuthSession, plan: Plan): Promise<Dealership> {
   if (session.user.role !== "manager") throw new Error("Only managers can change the plan.");
+  if (plan === "pro" && supabaseConfigured && session.kind !== "cloud") {
+    throw new Error("Sign in with a manager account to activate Pro, extra lots, and team logins.");
+  }
   const sb = getSupabase();
   if (sb) {
     const { data, error } = await sb

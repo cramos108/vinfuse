@@ -14,7 +14,7 @@ import {
   renameDealership,
   renameLocation,
   signOut,
-  supabaseConfigured,
+  wipeLocalWalkData,
 } from "@/lib/store";
 import type { Location, LocationKind } from "@/lib/types";
 
@@ -29,6 +29,7 @@ export default function SettingsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const manager = isManager(session.user.role);
   const pro = isPro(session.dealership);
   const addBlocked = canAddLocation(session.dealership, locations, kind);
@@ -78,22 +79,38 @@ export default function SettingsPage() {
   async function leave() {
     await signOut();
     await refresh();
-    router.replace("/login");
+    router.replace("/scan");
+  }
+
+  function clearWalks() {
+    if (
+      !confirm(
+        "Clear local walk history and open scan logs on this device? This cannot be undone. Manager cloud data is not affected.",
+      )
+    ) {
+      return;
+    }
+    wipeLocalWalkData(session.dealership.id);
+    setNotice("Local walk history and scan logs on this device were cleared.");
   }
 
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-3xl font-black">Settings</h1>
       <Card>
-        <p className="text-[11px] font-extrabold uppercase tracking-wider text-cyan">Signed in</p>
-        <p className="text-xl font-black">{session.user.fullName}</p>
+        <p className="text-[11px] font-extrabold uppercase tracking-wider text-cyan">
+          {session.kind === "local" ? "This device" : "Signed in"}
+        </p>
+        <p className="text-xl font-black">{session.kind === "local" ? "On-device scanner" : session.user.fullName}</p>
         <p className="font-semibold text-muted">
-          {session.user.email} · {session.user.role === "manager" ? "Manager / Admin" : "Lot Porter / Attendant"}
+          {session.kind === "local"
+            ? "Porters scan and save walks here with no login."
+            : `${session.user.email} · ${session.user.role === "manager" ? "Manager / Admin" : "Lot Porter / Attendant"}`}
         </p>
         <p className="mt-2 text-sm font-bold">
           Plan: {planLabel(session.dealership.plan)}
           {pro ? " · extra lots unlocked" : ""}
-          {supabaseConfigured ? " · Supabase" : " · This device"}
+          {session.kind === "cloud" ? " · Manager account" : " · Local"}
         </p>
       </Card>
 
@@ -201,10 +218,29 @@ export default function SettingsPage() {
 
       <PrivacyCard />
 
+      <Card className="flex flex-col gap-3">
+        <h2 className="text-xl font-black">Data on this device</h2>
+        <p className="text-sm font-semibold text-muted sunlight:text-slate-600">
+          Wipe walk archives and open scan logs stored in this browser. Use this after a test walk.
+        </p>
+        <Button variant="line" onClick={clearWalks}>
+          Clear local walk history
+        </Button>
+      </Card>
+
+      {notice ? <p className="font-bold text-ok">{notice}</p> : null}
       {error ? <p className="font-bold text-alert">{error}</p> : null}
-      <Button variant="alert" onClick={() => void leave()}>
-        Sign out
-      </Button>
+      {session.kind === "cloud" ? (
+        <Button variant="alert" onClick={() => void leave()}>
+          Sign out of manager account
+        </Button>
+      ) : (
+        <Link href="/login">
+          <Button variant="line" className="w-full">
+            Manager sign in
+          </Button>
+        </Link>
+      )}
     </div>
   );
 }

@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Check } from "lucide-react";
 import { useAuth, useRequiredSession } from "@/components/AuthProvider";
 import { Button, Card } from "@/components/ui";
 import { PRO_PRICE_LABEL } from "@/lib/brand";
 import { PLANS, isPro } from "@/lib/plan";
-import { setPlan } from "@/lib/store";
+import { setPlan, supabaseConfigured } from "@/lib/store";
 
 export default function UpgradePage() {
   const session = useRequiredSession();
@@ -14,6 +15,7 @@ export default function UpgradePage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const pro = isPro(session.dealership);
+  const needsManagerLogin = session.kind === "local" && supabaseConfigured;
 
   async function activate(plan: "free" | "pro") {
     setBusy(true);
@@ -49,9 +51,15 @@ export default function UpgradePage() {
             </li>
           ))}
         </ul>
-        <Button className="mt-6 w-full" disabled={busy || pro} onClick={() => void activate("pro")}>
-          {pro ? "Pro is active" : `Activate Pro · ${PRO_PRICE_LABEL}`}
-        </Button>
+        {needsManagerLogin ? (
+          <Link href="/login" className="mt-6 block">
+            <Button className="w-full">Manager sign in to activate Pro</Button>
+          </Link>
+        ) : (
+          <Button className="mt-6 w-full" disabled={busy || pro} onClick={() => void activate("pro")}>
+            {pro ? "Pro is active" : `Activate Pro · ${PRO_PRICE_LABEL}`}
+          </Button>
+        )}
         <p className="mt-3 text-xs font-semibold text-muted">
           Demo billing is in-app so you can test gates now. Wire Stripe in production before charging dealers.
         </p>

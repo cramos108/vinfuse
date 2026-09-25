@@ -83,6 +83,11 @@ export function deleteArchivedWalk(id: string) {
   saveAll(loadAll().filter((w) => w.id !== id));
 }
 
+export function clearAllWalkHistory() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(KEY);
+}
+
 export function walkShareText(walk: {
   dealershipName: string;
   locationName: string;

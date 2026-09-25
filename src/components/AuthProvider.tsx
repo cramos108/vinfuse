@@ -21,8 +21,6 @@ type AuthState = {
 
 const AuthContext = createContext<AuthState | null>(null);
 
-const PUBLIC_PATHS = new Set(["/", "/login", "/signup", "/privacy"]);
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,9 +54,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (loading) return;
-    const isPublic = PUBLIC_PATHS.has(pathname);
-    if (!session && !isPublic) router.replace("/login");
-    if (session && (pathname === "/login" || pathname === "/signup")) router.replace("/scan");
+    if (session?.kind === "cloud" && (pathname === "/login" || pathname === "/signup")) {
+      router.replace("/scan");
+    }
   }, [loading, session, pathname, router]);
 
   const value = useMemo<AuthState>(
@@ -84,6 +82,7 @@ export function useAuth(): AuthState {
 const EMPTY_SESSION: AuthSession = {
   user: { id: "", dealershipId: "", email: "", fullName: "", role: "porter" },
   dealership: { id: "", name: "", plan: "free", createdAt: "" },
+  kind: "local",
 };
 
 export function useRequiredSession(): AuthSession {
