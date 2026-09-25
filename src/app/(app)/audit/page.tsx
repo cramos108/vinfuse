@@ -182,15 +182,15 @@ export default function AuditPage() {
 
         <Button className="w-full" onClick={handlePrint} disabled={!report}>
           <Printer className="h-5 w-5" />
-          Print / Export Walk Report
+          Print discrepancy report
         </Button>
         <Button variant="line" className="w-full text-xs" onClick={handleExport} disabled={!report}>
           <FileDown className="h-5 w-5" />
           Export CSV
         </Button>
         <p className="text-xs font-semibold text-muted sunlight:text-slate-600">
-          Print / Export Walk Report opens the browser print dialog (Save as PDF for month-end files). Export CSV is the
-          same Scan List and discrepancy buckets as a spreadsheet.
+          Print the Scan List from the Walk tab (available on Free). This page prints the Pro discrepancy buckets.
+          Choose Save as PDF in the browser dialog.
         </p>
 
         <div className="grid grid-cols-2 gap-3">

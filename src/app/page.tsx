@@ -1,8 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
-import { Check, ScanLine, MapPin, FileSpreadsheet, Users } from "lucide-react";
+import { Check, ScanLine, MapPin, FileSpreadsheet, Users, Shield } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { APP_NAME, ECOSYSTEM, ECOSYSTEM_URL, PRO_PRICE_LABEL } from "@/lib/brand";
+import { PRIVACY_BODY, PRIVACY_HEADLINE } from "@/lib/privacy";
 import { PLANS } from "@/lib/plan";
 
 const FEATURES = [
@@ -161,6 +162,26 @@ export default function LandingPage() {
             </div>
           </div>
         </section>
+
+        <section id="privacy" className="border-t border-slate-200 bg-white py-16">
+          <div className="mx-auto max-w-5xl px-4">
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-teal">Security & Privacy</p>
+            <h2 className="mt-2 flex items-center gap-3 text-3xl font-black tracking-tight">
+              <Shield className="h-8 w-8 text-cyan" />
+              {PRIVACY_HEADLINE}
+            </h2>
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              {PRIVACY_BODY.map((p) => (
+                <p key={p} className="text-base font-medium leading-relaxed text-slate-600">
+                  {p}
+                </p>
+              ))}
+            </div>
+            <Link href="/privacy" className="mt-6 inline-flex text-sm font-extrabold uppercase tracking-wide text-cyan-ink underline decoration-cyan">
+              Full privacy terms
+            </Link>
+          </div>
+        </section>
       </main>
 
       <footer className="border-t border-slate-200 bg-white py-8">
@@ -168,9 +189,14 @@ export default function LandingPage() {
           <p>
             © {new Date().getFullYear()} {APP_NAME}. A {ECOSYSTEM} product for independent BHPH dealers.
           </p>
-          <a href={ECOSYSTEM_URL} className="text-cyan-ink underline decoration-cyan">
-            {ECOSYSTEM} AI
-          </a>
+          <div className="flex gap-4">
+            <Link href="/privacy" className="text-cyan-ink underline decoration-cyan">
+              Security & Privacy
+            </Link>
+            <a href={ECOSYSTEM_URL} className="text-cyan-ink underline decoration-cyan">
+              {ECOSYSTEM} AI
+            </a>
+          </div>
         </div>
       </footer>
     </div>

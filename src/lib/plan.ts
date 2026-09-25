@@ -14,6 +14,7 @@ export const PLANS = {
       "Unlimited camera VIN / barcode scanning",
       "Single location",
       "Scan List / Walk Report of camera captures",
+      "Print / share walks + local history on this device",
       "Add to home screen (PWA)",
     ],
     locked: [

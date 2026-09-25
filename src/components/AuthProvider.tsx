@@ -21,7 +21,7 @@ type AuthState = {
 
 const AuthContext = createContext<AuthState | null>(null);
 
-const PUBLIC_PATHS = new Set(["/", "/login", "/signup"]);
+const PUBLIC_PATHS = new Set(["/", "/login", "/signup", "/privacy"]);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);

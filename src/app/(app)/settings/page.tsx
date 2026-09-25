@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth, useRequiredSession } from "@/components/AuthProvider";
+import { PrivacyCard } from "@/components/PrivacyPanel";
 import { Button, Card, Field, Select, TextInput } from "@/components/ui";
 import { canAddLocation, isManager, isPro, planLabel } from "@/lib/plan";
 import {
@@ -137,6 +138,14 @@ export default function SettingsPage() {
           </Link>
         </div>
       ) : null}
+
+      <Link href="/history">
+        <Button variant="line" className="w-full">
+          Walk History
+        </Button>
+      </Link>
+
+      <PrivacyCard />
 
       {error ? <p className="font-bold text-alert">{error}</p> : null}
       <Button variant="alert" onClick={() => void leave()}>
