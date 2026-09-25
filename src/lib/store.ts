@@ -273,7 +273,7 @@ export async function signOut() {
 
 export async function requestPasswordReset(email: string) {
   const sb = getSupabase();
-  if (!sb) throw new Error("Password reset is for manager accounts connected to Supabase.");
+  if (!sb) throw new Error("Password reset is available for dealership manager accounts.");
   const trimmed = email.trim();
   if (!trimmed) throw new Error("Enter the manager email.");
   const { error } = await sb.auth.resetPasswordForEmail(trimmed, {
@@ -284,7 +284,7 @@ export async function requestPasswordReset(email: string) {
 
 export async function updatePassword(password: string) {
   const sb = getSupabase();
-  if (!sb) throw new Error("Password reset is for manager accounts connected to Supabase.");
+  if (!sb) throw new Error("Password reset is available for dealership manager accounts.");
   if (password.length < 6) throw new Error("Password must be at least 6 characters.");
   const { error } = await sb.auth.updateUser({ password });
   if (error) throw new Error(error.message);
@@ -347,7 +347,9 @@ export async function signUp(input: SignUpInput): Promise<AuthSession> {
   const sb = getSupabase();
   if (!fullName) throw new Error("Enter your name.");
   if (sb) {
-    if (!input.email.trim() || !input.password) throw new Error("Email and password are required for cloud login.");
+    if (!input.email.trim() || !input.password) {
+      throw new Error("Email and password are required for a dealership workspace.");
+    }
     if (input.password.length < 6) throw new Error("Password must be at least 6 characters.");
   }
   const email =

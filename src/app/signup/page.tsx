@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Logo } from "@/components/Logo";
 import { Button, Field, TextInput } from "@/components/ui";
-import { signUp, supabaseConfigured } from "@/lib/store";
+import { signUp } from "@/lib/store";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -34,9 +34,9 @@ export default function SignupPage() {
     <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-5 px-4 py-10">
       <Logo />
       <div>
-        <h1 className="text-3xl font-black">Manager account</h1>
+        <h1 className="text-3xl font-black">Create a dealership workspace</h1>
         <p className="mt-1 font-semibold text-muted">
-          For Pro, multiple lots, and team logins. Porters do not need an account — they scan on this device.
+          A secure manager account for Pro, extra lots, and team. Porters scan on this device with no account.
         </p>
       </div>
       <Link href="/scan" className="text-sm font-extrabold uppercase tracking-wide text-cyan">
@@ -68,13 +68,12 @@ export default function SignupPage() {
       </Field>
       {error ? <p className="font-bold text-alert">{error}</p> : null}
       <Button onClick={() => void submit()} disabled={busy} className="w-full">
-        Create manager account
+        Create dealership workspace
       </Button>
-      {!supabaseConfigured ? (
-        <p className="text-xs font-semibold text-muted">
-          Cloud login is optional. Scanning already works on this device without an account.
-        </p>
-      ) : null}
+      <p className="text-xs font-semibold text-muted">
+        Scanning already works on this device. A dealership workspace is only for managers who need Pro, extra lots, or
+        team logins.
+      </p>
       <p className="text-sm font-semibold text-muted">
         Already a manager?{" "}
         <Link href="/login" className="text-cyan">

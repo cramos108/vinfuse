@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Logo } from "@/components/Logo";
 import { Button, Field, TextInput } from "@/components/ui";
-import { requestPasswordReset, signIn, supabaseConfigured } from "@/lib/store";
+import { requestPasswordReset, signIn } from "@/lib/store";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -47,9 +47,10 @@ export default function LoginPage() {
     <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-5 px-4 py-10">
       <Logo />
       <div>
-        <h1 className="text-3xl font-black">Manager sign in</h1>
+        <h1 className="text-3xl font-black">Dealership workspace</h1>
         <p className="mt-1 font-semibold text-muted">
-          Email and password are for Pro, extra lots, and team accounts. Porters scan on this device with no login.
+          Sign in to your secure manager account for Pro, extra lots, and team. Porters scan on this device with no
+          login.
         </p>
       </div>
       <Link href="/scan" className="text-sm font-extrabold uppercase tracking-wide text-cyan">
@@ -80,20 +81,14 @@ export default function LoginPage() {
       <Button onClick={() => void submit()} disabled={busy || !email || !password} className="w-full">
         Sign in
       </Button>
-      {supabaseConfigured ? (
-        <button
-          type="button"
-          className="text-left text-sm font-extrabold text-cyan"
-          disabled={busy}
-          onClick={() => void reset()}
-        >
-          Forgot password?
-        </button>
-      ) : (
-        <p className="text-xs font-semibold text-muted">
-          Connect Supabase to enable manager accounts and password reset.
-        </p>
-      )}
+      <button
+        type="button"
+        className="text-left text-sm font-extrabold text-cyan"
+        disabled={busy}
+        onClick={() => void reset()}
+      >
+        Forgot password?
+      </button>
       <p className="text-sm font-semibold text-muted">
         Need a manager account?{" "}
         <Link href="/signup" className="text-cyan">
