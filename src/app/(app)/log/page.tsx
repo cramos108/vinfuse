@@ -2,11 +2,19 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { History, Printer, Share2 } from "lucide-react";
+import { History, Printer, Share2, Trash2 } from "lucide-react";
 import { useRequiredSession } from "@/components/AuthProvider";
 import { WalkPrintReport } from "@/components/WalkPrintReport";
 import { Button, Card } from "@/components/ui";
-import { closeAudit, getActiveLocationId, getOpenSession, listLocations, listScans, startAudit } from "@/lib/store";
+import {
+  closeAudit,
+  deleteScan,
+  getActiveLocationId,
+  getOpenSession,
+  listLocations,
+  listScans,
+  startAudit,
+} from "@/lib/store";
 import { TERMS } from "@/lib/terms";
 import type { Scan } from "@/lib/types";
 import { archiveClosedWalk, printWalkReport, shareWalkText, walkShareText } from "@/lib/walkHistory";
@@ -59,6 +67,16 @@ export default function LogPage() {
 
   function handlePrint() {
     printWalkReport(`VinFuse-Walk-${locationName.replace(/[^a-zA-Z0-9]+/g, "-")}`);
+  }
+
+  async function removeScan(scan: Scan) {
+    try {
+      await deleteScan(session, scan.id);
+      setScans((rows) => rows.filter((row) => row.id !== scan.id));
+      setNotice(`Removed ${formatVin(scan.vin)}.`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not remove that VIN.");
+    }
   }
 
   async function handleShare() {
@@ -136,12 +154,23 @@ export default function LogPage() {
           <ul className="flex flex-col gap-2">
             {scans.map((scan) => (
               <li key={scan.id}>
-                <Card className="p-4">
-                  <p className="font-mono text-lg font-black tracking-wide text-cyan">{formatVin(scan.vin)}</p>
-                  <p className="text-sm font-semibold text-muted sunlight:text-slate-600">
-                    {scan.scannerName} · {scan.source === "barcode" ? "Barcode" : "Typed"} ·{" "}
-                    {new Date(scan.scannedAt).toLocaleString()}
-                  </p>
+                <Card className="flex items-start justify-between gap-3 p-4">
+                  <div className="min-w-0">
+                    <p className="font-mono text-lg font-black tracking-wide text-cyan">{formatVin(scan.vin)}</p>
+                    <p className="text-sm font-semibold text-muted sunlight:text-slate-600">
+                      {scan.scannerName} · {scan.source === "barcode" ? "Barcode" : "Typed"} ·{" "}
+                      {new Date(scan.scannedAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${formatVin(scan.vin)}`}
+                    title="Remove accidental scan"
+                    className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-muted hover:bg-alert/10 hover:text-alert sunlight:text-slate-400"
+                    onClick={() => void removeScan(scan)}
+                  >
+                    <Trash2 className="h-5 w-5" />
+                  </button>
                 </Card>
               </li>
             ))}

@@ -869,6 +869,23 @@ export async function listScans(dealershipId: string, sessionId?: string): Promi
     .sort((a, b) => b.scannedAt.localeCompare(a.scannedAt));
 }
 
+export async function deleteScan(session: AuthSession, scanId: string) {
+  const sb = await cloudClient();
+  if (sb) {
+    const { error } = await sb
+      .from("scans")
+      .delete()
+      .eq("id", scanId)
+      .eq("dealership_id", session.dealership.id);
+    if (error) throw new Error(error.message);
+    emit();
+    return;
+  }
+  const db = loadDb();
+  db.scans = db.scans.filter((s) => !(s.id === scanId && s.dealershipId === session.dealership.id));
+  saveDb(db);
+}
+
 export async function listInventory(dealershipId: string): Promise<InventoryItem[]> {
   const sb = await cloudClient();
   if (sb) {
