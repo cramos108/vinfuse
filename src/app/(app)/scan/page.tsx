@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRequiredSession } from "@/components/AuthProvider";
 import { LocationSwitcher } from "@/components/LocationSwitcher";
+import { UpgradeModal } from "@/components/UpgradeModal";
 import { VinScanner } from "@/components/VinScanner";
 import { Card } from "@/components/ui";
+import { FREE_MAX_VINS_PER_AUDIT, isPro, uniqueVinCount, vinCapRemaining } from "@/lib/plan";
 import {
   getActiveLocationId,
-  getOpenSession,
   listLocations,
   listScans,
   logScan,
@@ -27,6 +28,7 @@ export default function ScanPage() {
   const [flash, setFlash] = useState<"ok" | "dup" | "err" | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showUpgrade, setShowUpgrade] = useState(false);
 
   const location = locations.find((l) => l.id === locationId) ?? locations[0];
 
@@ -40,7 +42,7 @@ export default function ScanPage() {
       const open = await startAudit(session, active);
       setAudit(open);
       const scans = await listScans(session.dealership.id, open.id);
-      setCount(scans.length);
+      setCount(uniqueVinCount(scans));
     }
   }, [session]);
 
@@ -55,7 +57,7 @@ export default function ScanPage() {
     const open = await startAudit(session, id);
     setAudit(open);
     const scans = await listScans(session.dealership.id, open.id);
-    setCount(scans.length);
+    setCount(uniqueVinCount(scans));
   }
 
   const onVin = useCallback(
@@ -67,6 +69,7 @@ export default function ScanPage() {
         if (!result.ok) {
           setFlash("err");
           setMessage(result.error);
+          if (result.code === "vin_cap") setShowUpgrade(true);
           return;
         }
         setLast(result.scan);
@@ -85,13 +88,16 @@ export default function ScanPage() {
     [audit, busy, location, session],
   );
 
+  const remaining = vinCapRemaining(session.dealership, count);
+  const atCap = remaining === 0;
+
   return (
     <div className="flex flex-col gap-4">
       <div>
         <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Side-window barcode</p>
         <h1 className="text-3xl font-black">Scan VIN</h1>
         <p className="font-semibold text-muted sunlight:text-slate-600">
-          {session.user.fullName} · {session.dealership.name}
+          {session.kind === "local" ? "On this device" : session.user.fullName} · {session.dealership.name}
         </p>
       </div>
 
@@ -108,6 +114,13 @@ export default function ScanPage() {
         <Card className="p-4">
           <p className="text-[11px] font-extrabold uppercase tracking-wider text-muted">This session</p>
           <p className="text-4xl font-black text-cyan">{count}</p>
+          {!isPro(session.dealership) ? (
+            <p className="mt-1 text-xs font-bold text-muted">
+              {atCap ? "Free cap reached" : `${remaining} of ${FREE_MAX_VINS_PER_AUDIT} left`}
+            </p>
+          ) : (
+            <p className="mt-1 text-xs font-bold text-muted">Unlimited</p>
+          )}
         </Card>
         <Card className="p-4">
           <p className="text-[11px] font-extrabold uppercase tracking-wider text-muted">Status</p>
@@ -115,7 +128,8 @@ export default function ScanPage() {
         </Card>
       </div>
 
-      <VinScanner onVin={onVin} busy={busy} />
+      <VinScanner onVin={onVin} busy={busy || atCap} />
+      <UpgradeModal open={showUpgrade} onClose={() => setShowUpgrade(false)} />
 
       {last ? (
         <Card

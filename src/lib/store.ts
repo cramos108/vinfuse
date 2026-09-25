@@ -2,7 +2,7 @@
 
 import { parseInventoryCsv } from "./csv";
 import { clearAllWalkHistory } from "./walkHistory";
-import { canAddLocation, canImportCsv, canInviteTeam, isPro } from "./plan";
+import { canAddLocation, canImportCsv, canInviteTeam, isPro, uniqueVinCount, vinCapReached } from "./plan";
 import { reconcileInventory } from "./reconcile";
 import { getSupabase, supabaseConfigured } from "./supabase";
 import type {
@@ -228,17 +228,34 @@ export async function getSession(): Promise<AuthSession | null> {
             dealership: {
               id: dealer.id,
               name: dealer.name,
-              plan: dealer.plan,
+              plan: dealer.plan as Dealership["plan"],
               createdAt: dealer.created_at,
             },
             kind: "cloud",
           };
         }
       }
+      return null;
     }
   }
   if (typeof window === "undefined") return null;
   return ensureLocalWorkspace();
+}
+
+async function cloudClient() {
+  const sb = getSupabase();
+  if (!sb) return null;
+  const { data } = await sb.auth.getUser();
+  return data.user ? sb : null;
+}
+
+async function waitForCloudSession(attempts = 12): Promise<AuthSession | null> {
+  for (let i = 0; i < attempts; i++) {
+    const next = await getSession();
+    if (next?.kind === "cloud") return next;
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+  }
+  return null;
 }
 
 export async function signIn(email: string, password: string): Promise<AuthSession> {
@@ -246,8 +263,10 @@ export async function signIn(email: string, password: string): Promise<AuthSessi
   if (sb) {
     const { error } = await sb.auth.signInWithPassword({ email, password });
     if (error) throw new Error(error.message);
-    const session = await getSession();
-    if (!session) throw new Error("Signed in, but no dealership profile was found.");
+    const session = (await waitForCloudSession()) ?? (await getSession());
+    if (!session || session.kind !== "cloud") {
+      throw new Error("Signed in, but no dealership workspace was found. Confirm the account email and try again.");
+    }
     emit();
     return session;
   }
@@ -370,9 +389,9 @@ export async function signUp(input: SignUpInput): Promise<AuthSession> {
       },
     });
     if (error) throw new Error(error.message);
-    const session = await getSession();
-    if (!session) {
-      throw new Error("Check your email to confirm the account, then sign in.");
+    const session = (await waitForCloudSession()) ?? (await getSession());
+    if (!session || session.kind !== "cloud") {
+      throw new Error("Check your email to confirm the dealership workspace, then sign in.");
     }
     emit();
     return session;
@@ -529,7 +548,7 @@ export async function signInDemo(): Promise<AuthSession> {
 }
 
 export async function listLocations(dealershipId: string): Promise<Location[]> {
-  const sb = getSupabase();
+  const sb = await cloudClient();
   if (sb) {
     const { data, error } = await sb
       .from("locations")
@@ -571,7 +590,7 @@ export async function createLocation(
   const blocked = canAddLocation(live.dealership, existing, kind);
   if (blocked) throw new Error(blocked);
 
-  const sb = getSupabase();
+  const sb = await cloudClient();
   if (sb) {
     const { data, error } = await sb
       .from("locations")
@@ -603,7 +622,7 @@ export async function createLocation(
 export async function renameLocation(session: AuthSession, locationId: string, name: string): Promise<Location> {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Name the lot.");
-  const sb = getSupabase();
+  const sb = await cloudClient();
   if (sb) {
     const { data, error } = await sb
       .from("locations")
@@ -633,7 +652,7 @@ export async function getOpenSession(
   dealershipId: string,
   locationId: string,
 ): Promise<AuditSession | null> {
-  const sb = getSupabase();
+  const sb = await cloudClient();
   if (sb) {
     const { data, error } = await sb
       .from("audit_sessions")
@@ -666,7 +685,7 @@ export async function getOpenSession(
 export async function startAudit(session: AuthSession, locationId: string): Promise<AuditSession> {
   const open = await getOpenSession(session.dealership.id, locationId);
   if (open) return open;
-  const sb = getSupabase();
+  const sb = await cloudClient();
   if (sb) {
     const { data, error } = await sb
       .from("audit_sessions")
@@ -706,7 +725,7 @@ export async function startAudit(session: AuthSession, locationId: string): Prom
 }
 
 export async function closeAudit(auditId: string) {
-  const sb = getSupabase();
+  const sb = await cloudClient();
   if (sb) {
     const { error } = await sb
       .from("audit_sessions")
@@ -727,7 +746,7 @@ export async function closeAudit(auditId: string) {
 
 export type ScanResult =
   | { ok: true; scan: Scan; duplicate: boolean }
-  | { ok: false; error: string };
+  | { ok: false; error: string; code?: "vin_cap" };
 
 export async function logScan(
   session: AuthSession,
@@ -743,8 +762,16 @@ export async function logScan(
 
   const existing = await listScans(session.dealership.id, audit.id);
   const duplicate = existing.some((s) => s.vin === vin);
+  const live = (await getSession()) ?? session;
+  if (!duplicate && vinCapReached(live.dealership, uniqueVinCount(existing))) {
+    return {
+      ok: false,
+      code: "vin_cap",
+      error: "Free includes up to 100 scanned units/VINs per audit. Go Pro for unlimited scanning.",
+    };
+  }
 
-  const sb = getSupabase();
+  const sb = await cloudClient();
   if (sb) {
     if (duplicate) {
       const prev = existing.find((s) => s.vin === vin)!;
@@ -805,7 +832,7 @@ export async function logScan(
 }
 
 export async function listScans(dealershipId: string, sessionId?: string): Promise<Scan[]> {
-  const sb = getSupabase();
+  const sb = await cloudClient();
   if (sb) {
     let q = sb
       .from("scans")
@@ -843,7 +870,7 @@ export async function listScans(dealershipId: string, sessionId?: string): Promi
 }
 
 export async function listInventory(dealershipId: string): Promise<InventoryItem[]> {
-  const sb = getSupabase();
+  const sb = await cloudClient();
   if (sb) {
     const { data, error } = await sb
       .from("inventory_items")
@@ -903,7 +930,7 @@ export async function importInventoryCsv(
 
   // Replace the current DMS Master Baseline only. Scans, audit sessions, and
   // historical Walk Reports are never deleted by a baseline upload.
-  const sb = getSupabase();
+  const sb = await cloudClient();
   if (sb) {
     await sb.from("inventory_items").delete().eq("dealership_id", session.dealership.id);
     const { error } = await sb.from("inventory_items").insert(
@@ -949,7 +976,7 @@ export async function getReconcile(
 }
 
 export async function listTeam(dealershipId: string): Promise<Profile[]> {
-  const sb = getSupabase();
+  const sb = await cloudClient();
   if (sb) {
     const { data, error } = await sb
       .from("profiles")
@@ -971,7 +998,7 @@ export async function listTeam(dealershipId: string): Promise<Profile[]> {
 }
 
 export async function listInvites(dealershipId: string): Promise<Invite[]> {
-  const sb = getSupabase();
+  const sb = await cloudClient();
   if (sb) {
     const { data, error } = await sb
       .from("invites")
@@ -1018,7 +1045,7 @@ export async function createInvite(
     createdAt: now(),
     usedAt: null,
   };
-  const sb = getSupabase();
+  const sb = await cloudClient();
   if (sb) {
     const { data, error } = await sb
       .from("invites")
@@ -1053,7 +1080,7 @@ export async function setPlan(session: AuthSession, plan: Plan): Promise<Dealers
   if (plan === "pro" && supabaseConfigured && session.kind !== "cloud") {
     throw new Error("Sign in with a manager account to activate Pro, extra lots, and team logins.");
   }
-  const sb = getSupabase();
+  const sb = await cloudClient();
   if (sb) {
     const { data, error } = await sb
       .from("dealerships")
@@ -1077,7 +1104,7 @@ export async function renameDealership(session: AuthSession, name: string): Prom
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Dealership name is required.");
   if (session.user.role !== "manager") throw new Error("Only managers can rename the dealership.");
-  const sb = getSupabase();
+  const sb = await cloudClient();
   if (sb) {
     const { data, error } = await sb
       .from("dealerships")

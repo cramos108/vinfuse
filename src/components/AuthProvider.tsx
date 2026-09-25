@@ -9,6 +9,7 @@ import {
   setSunlight as persistSunlight,
   subscribeStore,
 } from "@/lib/store";
+import { getSupabase } from "@/lib/supabase";
 import type { AuthSession } from "@/lib/types";
 
 type AuthState = {
@@ -44,12 +45,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => {
         if (alive) setLoading(false);
       });
-    return subscribeStore(() => {
+    const unsubStore = subscribeStore(() => {
       getSession().then((next) => {
         if (alive) setSession(next);
       });
       setSunlight(isSunlight());
     });
+    const sb = getSupabase();
+    const authSub = sb?.auth.onAuthStateChange(() => {
+      getSession().then((next) => {
+        if (alive) setSession(next);
+      });
+    });
+    return () => {
+      unsubStore();
+      authSub?.data.subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {

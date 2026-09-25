@@ -2,6 +2,7 @@ import type { Dealership, Location, LocationKind, Plan, Role } from "./types";
 import { PRO_PRICE_LABEL } from "./brand";
 
 export const FREE_MAX_LOCATIONS = 1;
+export const FREE_MAX_VINS_PER_AUDIT = 100;
 
 export const PLANS = {
   free: {
@@ -9,7 +10,7 @@ export const PLANS = {
     name: "Free",
     priceLabel: "$0",
     features: [
-      "Unlimited camera VIN / barcode scanning",
+      "Up to 100 scanned units/VINs per audit",
       "Single location",
       "Scan List / Walk Report of camera captures",
       "Print / share walks + local history on this device",
@@ -27,7 +28,7 @@ export const PLANS = {
     name: "Pro",
     priceLabel: PRO_PRICE_LABEL,
     features: [
-      "Everything in Free",
+      "Unlimited scanned units/VINs per audit",
       "DMS Master Baseline for the current audit",
       "Unlimited sales lots and service centers",
       "Printable Walk Report + discrepancy PDF",
@@ -75,4 +76,18 @@ export function canAddLocation(
 
 export function planLabel(plan?: Plan | null): string {
   return plan === "pro" ? "Pro" : "Free";
+}
+
+export function uniqueVinCount(vins: Array<{ vin: string }>): number {
+  return new Set(vins.map((row) => row.vin)).size;
+}
+
+export function vinCapReached(dealership: Pick<Dealership, "plan">, uniqueCount: number): boolean {
+  if (isPro(dealership)) return false;
+  return uniqueCount >= FREE_MAX_VINS_PER_AUDIT;
+}
+
+export function vinCapRemaining(dealership: Pick<Dealership, "plan">, uniqueCount: number): number | null {
+  if (isPro(dealership)) return null;
+  return Math.max(0, FREE_MAX_VINS_PER_AUDIT - uniqueCount);
 }

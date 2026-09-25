@@ -23,7 +23,7 @@ Open [http://localhost:3000](http://localhost:3000).
 Without Supabase env vars the app runs in **local demo mode** (data in this browser).
 
 - Open `/login` — a new device lands in a sample workspace; returning lots appear as **Continue as…**
-- Free: unlimited camera/manual VIN scans, one location, Scan List / Walk Report
+- Free: up to 100 scanned units/VINs per audit, one location, Scan List / Walk Report
 - Upgrade in-app to Pro ($49.99/mo gates): DMS Master Baseline for the current audit (does not delete scan history), unlimited sales lots and service centers, printable discrepancy report, team invites
 
 ## Supabase (production)
@@ -45,7 +45,7 @@ Signup as a manager creates a dealership + Main Lot. Porters join with a 6-chara
 
 | | Free | Pro ($49.99/mo) |
 |---|---|---|
-| Camera VIN / barcode scan | Unlimited | Unlimited |
+| Camera VIN / barcode scan | Up to 100 VINs per audit | Unlimited |
 | Locations | 1 | Unlimited sales lots + service centers |
 | Scan List / Walk Report | Yes | Yes |
 | DMS Master Baseline (current audit comparison) | No | Yes |

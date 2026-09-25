@@ -109,8 +109,8 @@ export default function SettingsPage() {
         </p>
         <p className="mt-2 text-sm font-bold">
           Plan: {planLabel(session.dealership.plan)}
-          {pro ? " · extra lots unlocked" : ""}
-          {session.kind === "cloud" ? " · Manager account" : " · Local"}
+          {pro ? " · unlimited VINs and lots" : " · up to 100 scanned units/VINs per audit"}
+          {session.kind === "cloud" ? " · Dealership workspace" : " · This device"}
         </p>
       </Card>
 
