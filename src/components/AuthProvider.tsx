@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { bootDevPro } from "@/lib/plan";
 import {
   bootSunlight,
   getSession,
@@ -36,6 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     bootSunlight();
+    bootDevPro();
     setSunlight(isSunlight());
     let alive = true;
     getSession()
@@ -64,6 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    bootDevPro();
     if (loading) return;
     if (session?.kind === "cloud" && (pathname === "/login" || pathname === "/signup")) {
       router.replace("/scan");

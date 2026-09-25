@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Check, ScanLine, MapPin, FileSpreadsheet, Users, Shield } from "lucide-react";
 import { Logo } from "@/components/Logo";
-import { APP_NAME, ECOSYSTEM, ECOSYSTEM_URL, PRO_PRICE_LABEL } from "@/lib/brand";
+import { APP_NAME, ECOSYSTEM, ECOSYSTEM_URL, PRO_PRICE_LABEL, STRIPE_PRO_URL } from "@/lib/brand";
 import { PRIVACY_BODY, PRIVACY_HEADLINE } from "@/lib/privacy";
 import { PLANS } from "@/lib/plan";
 
@@ -156,7 +156,7 @@ export default function LandingPage() {
                 price={PLANS.pro.priceLabel}
                 features={[...PLANS.pro.features]}
                 locked={[]}
-                href="/signup"
+                href={STRIPE_PRO_URL}
                 cta={`Go Pro · ${PRO_PRICE_LABEL}`}
                 featured
               />
@@ -243,14 +243,25 @@ function PlanCard({
           </li>
         ))}
       </ul>
-      <Link
-        href={href}
-        className={`mt-8 inline-flex min-h-14 items-center justify-center rounded-2xl px-5 text-sm font-extrabold uppercase tracking-wide ${
-          featured ? "bg-cyan text-cyan-ink" : "border-2 border-slate-300"
-        }`}
-      >
-        {cta}
-      </Link>
+      {href.startsWith("http") ? (
+        <a
+          href={href}
+          className={`mt-8 inline-flex min-h-14 items-center justify-center rounded-2xl px-5 text-sm font-extrabold uppercase tracking-wide ${
+            featured ? "bg-cyan text-cyan-ink" : "border-2 border-slate-300"
+          }`}
+        >
+          {cta}
+        </a>
+      ) : (
+        <Link
+          href={href}
+          className={`mt-8 inline-flex min-h-14 items-center justify-center rounded-2xl px-5 text-sm font-extrabold uppercase tracking-wide ${
+            featured ? "bg-cyan text-cyan-ink" : "border-2 border-slate-300"
+          }`}
+        >
+          {cta}
+        </Link>
+      )}
     </div>
   );
 }

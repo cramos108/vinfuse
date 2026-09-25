@@ -4,10 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { Check } from "lucide-react";
 import { useAuth, useRequiredSession } from "@/components/AuthProvider";
+import { ProCheckoutButton } from "@/components/ProCheckoutButton";
 import { Button, Card } from "@/components/ui";
 import { PRO_PRICE_LABEL } from "@/lib/brand";
-import { PLANS, isPro } from "@/lib/plan";
-import { setPlan, supabaseConfigured } from "@/lib/store";
+import { PLANS, clearDevPro, isDevPro, isPro } from "@/lib/plan";
+import { setPlan } from "@/lib/store";
 
 export default function UpgradePage() {
   const session = useRequiredSession();
@@ -15,13 +16,14 @@ export default function UpgradePage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const pro = isPro(session.dealership);
-  const needsManagerLogin = session.kind === "local" && supabaseConfigured;
+  const demoPro = isDevPro();
 
-  async function activate(plan: "free" | "pro") {
+  async function downgrade() {
     setBusy(true);
     setError(null);
     try {
-      await setPlan(session, plan);
+      if (demoPro) clearDevPro();
+      if (session.kind === "cloud") await setPlan(session, "free");
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update plan.");
@@ -36,8 +38,7 @@ export default function UpgradePage() {
         <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">LeadFuse ecosystem</p>
         <h1 className="text-3xl font-black">VinFuse Pro</h1>
         <p className="font-semibold text-muted sunlight:text-slate-600">
-          {PRO_PRICE_LABEL}. Unlock a DMS Master Baseline, unlimited sales lots and service centers, printable
-          discrepancy reports, and team logins.
+          {PRO_PRICE_LABEL}. Unlimited VINs, unlimited lots, discrepancy reports, and team logins.
         </p>
       </div>
       <Card className="border-cyan">
@@ -51,17 +52,17 @@ export default function UpgradePage() {
             </li>
           ))}
         </ul>
-        {needsManagerLogin ? (
-          <Link href="/login" className="mt-6 block">
-            <Button className="w-full">Manager sign in to activate Pro</Button>
-          </Link>
-        ) : (
-          <Button className="mt-6 w-full" disabled={busy || pro} onClick={() => void activate("pro")}>
-            {pro ? "Pro is active" : `Activate Pro · ${PRO_PRICE_LABEL}`}
+        {pro ? (
+          <Button className="mt-6 w-full" disabled>
+            Pro is active{demoPro ? " · demo" : ""}
           </Button>
+        ) : (
+          <div className="mt-6">
+            <ProCheckoutButton label={`Subscribe · ${PRO_PRICE_LABEL}`} />
+          </div>
         )}
         <p className="mt-3 text-xs font-semibold text-muted">
-          Demo billing is in-app so you can test gates now. Wire Stripe in production before charging dealers.
+          Checkout is handled securely by Stripe. After payment, your dealership workspace unlocks Pro.
         </p>
       </Card>
       <Card>
@@ -72,10 +73,16 @@ export default function UpgradePage() {
           ))}
         </ul>
         {pro ? (
-          <Button variant="line" className="mt-4 w-full" disabled={busy} onClick={() => void activate("free")}>
-            Downgrade to Free
+          <Button variant="line" className="mt-4 w-full" disabled={busy} onClick={() => void downgrade()}>
+            {demoPro ? "Turn off demo Pro" : "Downgrade to Free"}
           </Button>
-        ) : null}
+        ) : (
+          <Link href="/scan" className="mt-4 block">
+            <Button variant="line" className="w-full">
+              Continue on Free
+            </Button>
+          </Link>
+        )}
       </Card>
       {error ? <p className="font-bold text-alert">{error}</p> : null}
     </div>

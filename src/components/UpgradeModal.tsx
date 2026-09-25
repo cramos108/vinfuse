@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { ProCheckoutButton } from "@/components/ProCheckoutButton";
 import { Button, Modal } from "@/components/ui";
 import { PRO_PRICE_LABEL } from "@/lib/brand";
 import { FREE_MAX_VINS_PER_AUDIT } from "@/lib/plan";
@@ -24,9 +24,9 @@ export function UpgradeModal({
         <li>• Unlimited sales lots and service centers</li>
         <li>• Team logins for managers and lot porters</li>
       </ul>
-      <Link href="/upgrade" className="mt-5 block">
-        <Button className="w-full">Go Pro · {PRO_PRICE_LABEL}</Button>
-      </Link>
+      <div className="mt-5">
+        <ProCheckoutButton />
+      </div>
       <Button variant="line" className="mt-3 w-full" onClick={onClose}>
         Keep this walk at {FREE_MAX_VINS_PER_AUDIT}
       </Button>

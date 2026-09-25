@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { Lock } from "lucide-react";
-import { Button, Card } from "@/components/ui";
+import { ProCheckoutButton } from "@/components/ProCheckoutButton";
+import { Card } from "@/components/ui";
 import { PRO_PRICE_LABEL } from "@/lib/brand";
 
 export function UpgradeGate({
@@ -22,9 +22,7 @@ export function UpgradeGate({
         <h2 className="mt-1 text-2xl font-black">{title}</h2>
         <p className="mt-2 text-base font-semibold text-muted sunlight:text-slate-600">{body}</p>
       </div>
-      <Link href="/upgrade" className="w-full">
-        <Button className="w-full">Unlock Pro</Button>
-      </Link>
+      <ProCheckoutButton label={`Unlock Pro · ${PRO_PRICE_LABEL}`} />
     </Card>
   );
 }

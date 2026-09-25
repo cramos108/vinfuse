@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { MapPin } from "lucide-react";
 import { Select } from "@/components/ui";
+import { STRIPE_PRO_URL } from "@/lib/brand";
 import type { Dealership, Location } from "@/lib/types";
 import { canSwitchLocations } from "@/lib/plan";
 
@@ -30,9 +30,9 @@ export function LocationSwitcher({
             <p className="text-base font-black">{current?.name ?? "Main Lot"}</p>
           </div>
         </div>
-        <Link href="/upgrade" className="text-xs font-extrabold uppercase tracking-wide text-cyan">
+        <a href={STRIPE_PRO_URL} className="text-xs font-extrabold uppercase tracking-wide text-cyan">
           Unlock lots
-        </Link>
+        </a>
       </div>
     );
   }

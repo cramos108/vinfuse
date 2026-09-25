@@ -16,7 +16,7 @@ import {
   printAuditReport,
   type AuditPrintMeta,
 } from "@/lib/auditReport";
-import { canImportCsv, canReconcile, isManager } from "@/lib/plan";
+import { canImportCsv, canReconcile, isDevPro, isManager } from "@/lib/plan";
 import { vehicleLabel } from "@/lib/reconcile";
 import {
   getActiveLocationId,
@@ -44,7 +44,7 @@ export default function AuditPage() {
   const [error, setError] = useState<string | null>(null);
 
   const location = locations.find((l) => l.id === locationId) ?? locations[0];
-  const manager = isManager(session.user.role);
+  const manager = isManager(session.user.role) || isDevPro();
 
   async function load(id?: string) {
     if (!session.dealership.id) return;

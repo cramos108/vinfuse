@@ -7,7 +7,8 @@ import { useAuth, useRequiredSession } from "@/components/AuthProvider";
 import { PrivacyCard } from "@/components/PrivacyPanel";
 import { Button, Card, Field, Select, TextInput } from "@/components/ui";
 import { kindLabel } from "@/components/LocationSwitcher";
-import { canAddLocation, isManager, isPro, planLabel } from "@/lib/plan";
+import { ProCheckoutButton } from "@/components/ProCheckoutButton";
+import { canAddLocation, isDevPro, isManager, isPro, planLabel } from "@/lib/plan";
 import {
   createLocation,
   listLocations,
@@ -30,7 +31,7 @@ export default function SettingsPage() {
   const [editingName, setEditingName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const manager = isManager(session.user.role);
+  const manager = isManager(session.user.role) || isDevPro();
   const pro = isPro(session.dealership);
   const addBlocked = canAddLocation(session.dealership, locations, kind);
 
@@ -194,9 +195,13 @@ export default function SettingsPage() {
 
       {manager ? (
         <div className="grid gap-3">
-          <Link href="/upgrade">
-            <Button className="w-full">{pro ? "Manage Pro" : "Upgrade to Pro"}</Button>
-          </Link>
+          {pro ? (
+            <Link href="/upgrade">
+              <Button className="w-full">Manage Pro</Button>
+            </Link>
+          ) : (
+            <ProCheckoutButton label="Upgrade to Pro" />
+          )}
           <Link href="/team">
             <Button variant="line" className="w-full">
               Team logins

@@ -38,7 +38,42 @@ export const PLANS = {
   },
 } as const;
 
+const DEV_PRO_KEY = "vinfuse.devPro";
+
+export function bootDevPro() {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = new URLSearchParams(window.location.search).get("dev");
+    if (raw === "true" || raw === "1") localStorage.setItem(DEV_PRO_KEY, "1");
+    else if (raw === "false" || raw === "0") localStorage.removeItem(DEV_PRO_KEY);
+  } catch {
+    /* private mode */
+  }
+}
+
+export function isDevPro(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = new URLSearchParams(window.location.search).get("dev");
+    if (raw === "true" || raw === "1") return true;
+    if (raw === "false" || raw === "0") return false;
+    return localStorage.getItem(DEV_PRO_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function clearDevPro() {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(DEV_PRO_KEY);
+  } catch {
+    /* private mode */
+  }
+}
+
 export function isPro(dealership?: Pick<Dealership, "plan"> | null): boolean {
+  if (isDevPro()) return true;
   return String(dealership?.plan ?? "").toLowerCase() === "pro";
 }
 
@@ -75,6 +110,7 @@ export function canAddLocation(
 }
 
 export function planLabel(plan?: Plan | null): string {
+  if (isDevPro()) return "Pro";
   return plan === "pro" ? "Pro" : "Free";
 }
 

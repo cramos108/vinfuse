@@ -6,4 +6,5 @@ export const ECOSYSTEM = "LeadFuse";
 export const ECOSYSTEM_URL = "https://bhph.leadfuse.ai/";
 export const PRO_PRICE = 49.99;
 export const PRO_PRICE_LABEL = "$49.99/mo";
+export const STRIPE_PRO_URL = "https://buy.stripe.com/6oUeVc3TQgW502Zes84ko02";
 export const SUPPORT_EMAIL = "hello@vinfuse.app";
