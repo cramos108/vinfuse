@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Logo } from "@/components/Logo";
@@ -21,13 +21,9 @@ export default function LoginPage() {
   const [showEmail, setShowEmail] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [opening, setOpening] = useState(!supabaseConfigured);
   const [accounts, setAccounts] = useState<LocalAccount[]>([]);
-
-  useEffect(() => {
-    setAccounts(listLocalAccounts());
-    const demo = new URLSearchParams(window.location.search).get("demo") === "1";
-    if (demo && !supabaseConfigured) void enterDemo();
-  }, []);
+  const started = useRef(false);
 
   async function goScan(run: () => Promise<unknown>) {
     setBusy(true);
@@ -36,36 +32,54 @@ export default function LoginPage() {
       await run();
       router.replace("/scan");
     } catch (err) {
+      setOpening(false);
       setError(err instanceof Error ? err.message : "Could not open the lot.");
     } finally {
       setBusy(false);
     }
   }
 
-  async function enterDemo() {
-    await goScan(() => signInDemo());
+  useEffect(() => {
+    const existing = listLocalAccounts();
+    setAccounts(existing);
+    if (started.current || supabaseConfigured) {
+      setOpening(false);
+      return;
+    }
+    started.current = true;
+    if (existing.length === 1) {
+      void goScan(() => continueLocal(existing[0].id));
+      return;
+    }
+    if (existing.length === 0) {
+      void goScan(() => signInDemo());
+      return;
+    }
+    setOpening(false);
+  }, []);
+
+  if (opening && !error) {
+    return (
+      <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-3 px-4 py-10">
+        <Logo />
+        <p className="text-lg font-bold text-cyan">Opening your lot…</p>
+      </div>
+    );
   }
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-5 px-4 py-10">
       <Logo />
       <div>
-        <h1 className="text-3xl font-black">Get on the lot</h1>
+        <h1 className="text-3xl font-black">Open your lot</h1>
         <p className="mt-1 font-semibold text-muted">
-          One tap for the demo. This device remembers your lot — no password wall.
+          {accounts.length ? "Pick a lot on this device." : "This device remembers your lot. No password wall."}
         </p>
       </div>
-
-      {!supabaseConfigured ? (
-        <Button onClick={() => void enterDemo()} disabled={busy} className="w-full">
-          Try the Suncoast demo lot
-        </Button>
-      ) : null}
 
       {accounts.map((account) => (
         <Button
           key={account.id}
-          variant="line"
           disabled={busy}
           className="w-full normal-case tracking-normal"
           onClick={() => void goScan(() => continueLocal(account.id))}
@@ -79,7 +93,7 @@ export default function LoginPage() {
       <p className="text-sm font-semibold text-muted">
         New dealership?{" "}
         <Link href="/signup" className="text-cyan">
-          Create a lot in seconds
+          Create a lot
         </Link>
       </p>
 
@@ -102,7 +116,7 @@ export default function LoginPage() {
               placeholder="you@lot.com"
             />
           </Field>
-          <Field label="Password" hint={supabaseConfigured ? undefined : "Only if you set one. Local lots can skip this."}>
+          <Field label="Password">
             <TextInput
               type="password"
               autoComplete="current-password"

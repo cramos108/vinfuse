@@ -6,16 +6,17 @@ import { useRouter } from "next/navigation";
 import { useAuth, useRequiredSession } from "@/components/AuthProvider";
 import { PrivacyCard } from "@/components/PrivacyPanel";
 import { Button, Card, Field, Select, TextInput } from "@/components/ui";
+import { kindLabel } from "@/components/LocationSwitcher";
 import { canAddLocation, isManager, isPro, planLabel } from "@/lib/plan";
 import {
   createLocation,
   listLocations,
   renameDealership,
+  renameLocation,
   signOut,
   supabaseConfigured,
 } from "@/lib/store";
 import type { Location, LocationKind } from "@/lib/types";
-import { kindLabel } from "@/components/LocationSwitcher";
 
 export default function SettingsPage() {
   const session = useRequiredSession();
@@ -25,8 +26,12 @@ export default function SettingsPage() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [lotName, setLotName] = useState("");
   const [kind, setKind] = useState<LocationKind>("sales_lot");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const manager = isManager(session.user.role);
+  const pro = isPro(session.dealership);
+  const addBlocked = canAddLocation(session.dealership, locations, kind);
 
   async function load() {
     if (!session.dealership.id) return;
@@ -36,7 +41,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     void load();
-  }, [session.dealership.id, session.dealership.name]);
+  }, [session.dealership.id, session.dealership.name, session.dealership.plan]);
 
   async function saveName() {
     setError(null);
@@ -59,13 +64,22 @@ export default function SettingsPage() {
     }
   }
 
+  async function saveLotName(id: string) {
+    setError(null);
+    try {
+      await renameLocation(session, id, editingName);
+      setEditingId(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not rename location.");
+    }
+  }
+
   async function leave() {
     await signOut();
     await refresh();
     router.replace("/login");
   }
-
-  const addBlocked = canAddLocation(session.dealership, locations, kind);
 
   return (
     <div className="flex flex-col gap-4">
@@ -78,7 +92,8 @@ export default function SettingsPage() {
         </p>
         <p className="mt-2 text-sm font-bold">
           Plan: {planLabel(session.dealership.plan)}
-          {supabaseConfigured ? " · Supabase" : " · Local demo"}
+          {pro ? " · extra lots unlocked" : ""}
+          {supabaseConfigured ? " · Supabase" : " · This device"}
         </p>
       </Card>
 
@@ -95,26 +110,65 @@ export default function SettingsPage() {
 
       <Card className="flex flex-col gap-3">
         <h2 className="text-xl font-black">Locations</h2>
-        {locations.map((loc) => (
-          <p key={loc.id} className="font-bold">
-            {loc.name} · {kindLabel(loc.kind)}
+        {pro ? (
+          <p className="text-sm font-semibold text-muted sunlight:text-slate-600">
+            Pro is active. Add sales lots (West Lot, North Lot, …) and service centers as you need them.
           </p>
+        ) : (
+          <p className="text-sm font-semibold text-muted sunlight:text-slate-600">
+            Free includes one location. Upgrade to Pro to add more lots.
+          </p>
+        )}
+        {locations.map((loc) => (
+          <div key={loc.id} className="flex flex-col gap-2">
+            {editingId === loc.id ? (
+              <>
+                <TextInput value={editingName} onChange={(e) => setEditingName(e.target.value)} />
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="line" className="min-h-11 text-xs" onClick={() => void saveLotName(loc.id)}>
+                    Save
+                  </Button>
+                  <Button variant="ghost" className="min-h-11 text-xs" onClick={() => setEditingId(null)}>
+                    Cancel
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-bold">
+                  {loc.name} · {kindLabel(loc.kind)}
+                </p>
+                {manager ? (
+                  <button
+                    type="button"
+                    className="text-xs font-extrabold uppercase tracking-wide text-cyan"
+                    onClick={() => {
+                      setEditingId(loc.id);
+                      setEditingName(loc.name);
+                    }}
+                  >
+                    Edit
+                  </button>
+                ) : null}
+              </div>
+            )}
+          </div>
         ))}
         {manager ? (
           <>
             <Field label="Add location">
-              <TextInput value={lotName} onChange={(e) => setLotName(e.target.value)} placeholder="North Lot" />
+              <TextInput value={lotName} onChange={(e) => setLotName(e.target.value)} placeholder="West Lot" />
             </Field>
             <Select value={kind} onChange={(e) => setKind(e.target.value as LocationKind)}>
               <option value="sales_lot">Sales lot</option>
               <option value="service_center">Service center</option>
             </Select>
-            {addBlocked && !isPro(session.dealership) ? (
+            {addBlocked ? (
               <Link href="/upgrade" className="text-sm font-extrabold text-cyan">
                 {addBlocked}
               </Link>
             ) : null}
-            <Button variant="line" onClick={() => void addLot()} disabled={Boolean(addBlocked)}>
+            <Button variant="line" onClick={() => void addLot()} disabled={Boolean(addBlocked) || !lotName.trim()}>
               Add location
             </Button>
           </>
@@ -124,7 +178,7 @@ export default function SettingsPage() {
       {manager ? (
         <div className="grid gap-3">
           <Link href="/upgrade">
-            <Button className="w-full">{isPro(session.dealership) ? "Manage Pro" : "Upgrade to Pro"}</Button>
+            <Button className="w-full">{pro ? "Manage Pro" : "Upgrade to Pro"}</Button>
           </Link>
           <Link href="/team">
             <Button variant="line" className="w-full">

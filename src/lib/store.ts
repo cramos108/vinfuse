@@ -486,15 +486,16 @@ export async function createLocation(
 ): Promise<Location> {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Name the lot.");
-  const existing = await listLocations(session.dealership.id);
-  const blocked = canAddLocation(session.dealership, existing, kind);
+  const live = (await getSession()) ?? session;
+  const existing = await listLocations(live.dealership.id);
+  const blocked = canAddLocation(live.dealership, existing, kind);
   if (blocked) throw new Error(blocked);
 
   const sb = getSupabase();
   if (sb) {
     const { data, error } = await sb
       .from("locations")
-      .insert({ dealership_id: session.dealership.id, name: trimmed, kind })
+      .insert({ dealership_id: live.dealership.id, name: trimmed, kind })
       .select("id, dealership_id, name, kind")
       .single();
     if (error) throw new Error(error.message);
@@ -509,12 +510,41 @@ export async function createLocation(
 
   const location: Location = {
     id: uid(),
-    dealershipId: session.dealership.id,
+    dealershipId: live.dealership.id,
     name: trimmed,
     kind,
   };
   const db = loadDb();
   db.locations.push(location);
+  saveDb(db);
+  return location;
+}
+
+export async function renameLocation(session: AuthSession, locationId: string, name: string): Promise<Location> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Name the lot.");
+  const sb = getSupabase();
+  if (sb) {
+    const { data, error } = await sb
+      .from("locations")
+      .update({ name: trimmed })
+      .eq("id", locationId)
+      .eq("dealership_id", session.dealership.id)
+      .select("id, dealership_id, name, kind")
+      .single();
+    if (error) throw new Error(error.message);
+    emit();
+    return {
+      id: data.id,
+      dealershipId: data.dealership_id,
+      name: data.name,
+      kind: data.kind,
+    };
+  }
+  const db = loadDb();
+  const location = db.locations.find((l) => l.id === locationId && l.dealershipId === session.dealership.id);
+  if (!location) throw new Error("Location not found.");
+  location.name = trimmed;
   saveDb(db);
   return location;
 }

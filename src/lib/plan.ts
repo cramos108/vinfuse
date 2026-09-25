@@ -2,8 +2,6 @@ import type { Dealership, Location, LocationKind, Plan, Role } from "./types";
 import { PRO_PRICE_LABEL } from "./brand";
 
 export const FREE_MAX_LOCATIONS = 1;
-export const PRO_MAX_SALES_LOTS = 2;
-export const PRO_MAX_SERVICE = 1;
 
 export const PLANS = {
   free: {
@@ -31,7 +29,7 @@ export const PLANS = {
     features: [
       "Everything in Free",
       "DMS Master Baseline for the current audit",
-      "2 sales lots + 1 service center",
+      "Unlimited sales lots and service centers",
       "Printable Walk Report + discrepancy PDF",
       "Unlimited team logins (managers + lot porters)",
     ],
@@ -40,7 +38,7 @@ export const PLANS = {
 } as const;
 
 export function isPro(dealership?: Pick<Dealership, "plan"> | null): boolean {
-  return dealership?.plan === "pro";
+  return String(dealership?.plan ?? "").toLowerCase() === "pro";
 }
 
 export function isManager(role?: Role | null): boolean {
@@ -66,21 +64,11 @@ export function canSwitchLocations(dealership: Dealership): boolean {
 export function canAddLocation(
   dealership: Dealership,
   locations: Location[],
-  kind: LocationKind,
+  _kind: LocationKind,
 ): string | null {
-  if (!isPro(dealership)) {
-    if (locations.length >= FREE_MAX_LOCATIONS) {
-      return "Free includes one location. Upgrade to Pro for 2 sales lots + a service center.";
-    }
-    return null;
-  }
-  const sales = locations.filter((l) => l.kind === "sales_lot").length;
-  const service = locations.filter((l) => l.kind === "service_center").length;
-  if (kind === "sales_lot" && sales >= PRO_MAX_SALES_LOTS) {
-    return "Pro includes 2 sales lots.";
-  }
-  if (kind === "service_center" && service >= PRO_MAX_SERVICE) {
-    return "Pro includes 1 service center.";
+  if (isPro(dealership)) return null;
+  if (locations.length >= FREE_MAX_LOCATIONS) {
+    return "Free includes one location. Upgrade to Pro to add sales lots and service centers.";
   }
   return null;
 }

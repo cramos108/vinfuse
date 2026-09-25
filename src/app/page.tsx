@@ -15,7 +15,7 @@ const FEATURES = [
   {
     icon: MapPin,
     title: "Multi-location audits",
-    body: "Pro unlocks two sales lots and a service center so porters scan the right yard.",
+    body: "Pro unlocks unlimited sales lots and service centers so porters scan the right yard.",
   },
   {
     icon: FileSpreadsheet,
@@ -83,10 +83,10 @@ export default function LandingPage() {
               </figure>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href="/login?demo=1"
+                  href="/login"
                   className="inline-flex min-h-14 items-center justify-center rounded-2xl bg-cyan px-6 text-base font-extrabold uppercase tracking-wide text-cyan-ink shadow-[0_0_24px_rgba(34,211,238,0.35)]"
                 >
-                  Try the Suncoast demo lot
+                  Start scanning
                 </Link>
                 <Link
                   href="/signup"

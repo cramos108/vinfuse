@@ -22,10 +22,9 @@ Open [http://localhost:3000](http://localhost:3000).
 
 Without Supabase env vars the app runs in **local demo mode** (data in this browser).
 
-- Sign in → **Try the Suncoast demo lot** (one tap, no password)
-- Returning lots on this device appear as **Continue as…**
+- Open `/login` — a new device lands in a sample workspace; returning lots appear as **Continue as…**
 - Free: unlimited camera/manual VIN scans, one location, Scan List / Walk Report
-- Upgrade in-app to Pro ($49.99/mo gates): DMS Master Baseline for the current audit (does not delete scan history), 2 sales lots + 1 service center, printable discrepancy report, team invites
+- Upgrade in-app to Pro ($49.99/mo gates): DMS Master Baseline for the current audit (does not delete scan history), unlimited sales lots and service centers, printable discrepancy report, team invites
 
 ## Supabase (production)
 
@@ -47,7 +46,7 @@ Signup as a manager creates a dealership + Main Lot. Porters join with a 6-chara
 | | Free | Pro ($49.99/mo) |
 |---|---|---|
 | Camera VIN / barcode scan | Unlimited | Unlimited |
-| Locations | 1 | 2 sales lots + 1 service center |
+| Locations | 1 | Unlimited sales lots + service centers |
 | Scan List / Walk Report | Yes | Yes |
 | DMS Master Baseline (current audit comparison) | No | Yes |
 | Missing / unmatched / misplaced report + print/PDF | No | Yes |

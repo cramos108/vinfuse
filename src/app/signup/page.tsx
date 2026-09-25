@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Logo } from "@/components/Logo";
 import { Button, Field, TextInput } from "@/components/ui";
-import { signInDemo, signUp, supabaseConfigured } from "@/lib/store";
+import { signUp, supabaseConfigured } from "@/lib/store";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -42,12 +42,6 @@ export default function SignupPage() {
             : "Just your name. This device keeps the lot — no password required."}
         </p>
       </div>
-
-      {!supabaseConfigured ? (
-        <Button onClick={() => void goScan(() => signInDemo())} disabled={busy} className="w-full">
-          Try the Suncoast demo lot
-        </Button>
-      ) : null}
 
       <Field label="Your name">
         <TextInput value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Alex Rivera" />
