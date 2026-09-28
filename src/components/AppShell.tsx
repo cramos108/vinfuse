@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ClipboardList, LayoutDashboard, ScanLine, Settings, Sun, Moon } from "lucide-react";
+import { ClipboardList, LayoutDashboard, ScanLine, Settings } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { useAuth } from "@/components/AuthProvider";
 import { PwaInstallBanner } from "@/components/PwaInstallBanner";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { isManager, isPro, planLabel } from "@/lib/plan";
 
 const NAV = [
@@ -17,11 +18,11 @@ const NAV = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { session, loading, sunlight, toggleSunlight } = useAuth();
+  const { session, loading } = useAuth();
 
   if (loading) {
     return (
-      <div className="grid min-h-dvh place-items-center bg-navy text-white">
+      <div className="grid min-h-dvh place-items-center bg-navy text-white sunlight:bg-paper sunlight:text-ink">
         <p className="text-lg font-bold text-cyan">Loading VinFuse…</p>
       </div>
     );
@@ -44,14 +45,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 ? "Device"
                 : planLabel(session.dealership.plan)}
             </span>
-            <button
-              type="button"
-              onClick={toggleSunlight}
-              className="grid h-11 w-11 place-items-center rounded-xl border-2 border-line"
-              aria-label={sunlight ? "Switch to dark lot mode" : "Switch to sunlight mode"}
-            >
-              {sunlight ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5 text-warn" />}
-            </button>
+            <ThemeToggle />
           </div>
         </div>
       </header>

@@ -28,10 +28,22 @@ body {
 }
 
 body {
-  background: #020817;
-  color: #f8fafc;
+  background: #f8fafc;
+  color: #020817;
   font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   -webkit-tap-highlight-color: transparent;
+}
+
+html.dark,
+html.dark body {
+  background: #020817;
+  color: #f8fafc;
+}
+
+html.sunlight,
+html.sunlight body {
+  background: #f8fafc;
+  color: #020817;
 }
 
 * {
@@ -44,13 +56,12 @@ select {
   font-size: 16px;
 }
 
-html.sunlight,
-html.sunlight body {
-  background: #f8fafc;
-  color: #020817;
-}
-
+@custom-variant dark (&:where(.dark, .dark *));
 @custom-variant sunlight (&:where(.sunlight, .sunlight *));
+
+html.sunlight .text-muted {
+  color: #475569;
+}
 
 @page {
   margin: 12mm;
@@ -60,6 +71,8 @@ html.sunlight body {
 @media print {
   html,
   body,
+  html.dark,
+  html.dark body,
   html.sunlight,
   html.sunlight body {
     background: #ffffff !important;

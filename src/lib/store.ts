@@ -23,7 +23,6 @@ import type {
 import { extractVin, isValidVin, normalizeVin } from "./vin";
 
 const DB_KEY = "vinfuse.v1";
-const SUN_KEY = "vinfuse.sunlight";
 const LOC_KEY = "vinfuse.activeLocation";
 const DEMO_EMAIL = "demo@vinfuse.app";
 const DEMO_PASSWORD = "demo1234";
@@ -86,26 +85,6 @@ function loadDb(): LocalDb {
 function saveDb(db: LocalDb) {
   localStorage.setItem(DB_KEY, JSON.stringify(db));
   emit();
-}
-
-export function isSunlight(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return localStorage.getItem(SUN_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-export function setSunlight(on: boolean) {
-  localStorage.setItem(SUN_KEY, on ? "1" : "0");
-  document.documentElement.classList.toggle("sunlight", on);
-  emit();
-}
-
-export function bootSunlight() {
-  if (typeof document === "undefined") return;
-  document.documentElement.classList.toggle("sunlight", isSunlight());
 }
 
 function readActiveLocationId(): string | null {

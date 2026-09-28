@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Logo } from "@/components/Logo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button, Field, TextInput } from "@/components/ui";
 import { requestPasswordReset, signIn } from "@/lib/store";
 
@@ -45,6 +46,9 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-5 px-4 py-10">
+      <div className="fixed right-4 top-4 z-20">
+        <ThemeToggle />
+      </div>
       <Logo />
       <div>
         <h1 className="text-3xl font-black">Dealership workspace</h1>

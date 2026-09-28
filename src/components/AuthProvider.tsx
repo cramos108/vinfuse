@@ -3,22 +3,15 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { bootDevPro } from "@/lib/plan";
-import {
-  bootSunlight,
-  getSession,
-  isSunlight,
-  setSunlight as persistSunlight,
-  subscribeStore,
-} from "@/lib/store";
+import { getSession, subscribeStore } from "@/lib/store";
+import { bootTheme } from "@/lib/theme";
 import { getSupabase } from "@/lib/supabase";
 import type { AuthSession } from "@/lib/types";
 
 type AuthState = {
   session: AuthSession | null;
   loading: boolean;
-  sunlight: boolean;
   refresh: () => Promise<void>;
-  toggleSunlight: () => void;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -26,7 +19,6 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState(true);
-  const [sunlight, setSunlight] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
 
@@ -36,9 +28,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    bootSunlight();
+    bootTheme();
     bootDevPro();
-    setSunlight(isSunlight());
     let alive = true;
     getSession()
       .then((next) => {
@@ -51,7 +42,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       getSession().then((next) => {
         if (alive) setSession(next);
       });
-      setSunlight(isSunlight());
     });
     const sb = getSupabase();
     const authSub = sb?.auth.onAuthStateChange(() => {
@@ -77,11 +67,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       session,
       loading,
-      sunlight,
       refresh,
-      toggleSunlight: () => persistSunlight(!sunlight),
     }),
-    [session, loading, sunlight],
+    [session, loading],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
