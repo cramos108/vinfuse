@@ -57,6 +57,20 @@ export type Scan = {
   source: ScanSource;
 };
 
+/** FTC Used Car Rule window-sticker (Buyers Guide) verification. */
+export type BuyersGuideStatus = "missing" | "verified" | "overdue";
+export type BuyersGuideFilter = "all" | "missing" | "overdue";
+
+export type BuyersGuideRecord = {
+  vin: string;
+  dealershipId: string;
+  verified: boolean;
+  lastVerifiedAt: string | null;
+  verifiedBy: string | null;
+  verifierName: string | null;
+  updatedAt: string;
+};
+
 export type InventoryItem = {
   id: string;
   dealershipId: string;

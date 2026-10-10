@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRequiredSession } from "@/components/AuthProvider";
+import { BuyersGuideToggle } from "@/components/BuyersGuideToggle";
 import { LocationSwitcher } from "@/components/LocationSwitcher";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { VinScanner } from "@/components/VinScanner";
@@ -9,13 +11,15 @@ import { Card } from "@/components/ui";
 import { FREE_MAX_VINS_PER_AUDIT, isPro, uniqueVinCount, vinCapRemaining } from "@/lib/plan";
 import {
   getActiveLocationId,
+  getBuyersGuide,
   listLocations,
   listScans,
   logScan,
   setActiveLocation,
+  setBuyersGuideVerified,
   startAudit,
 } from "@/lib/store";
-import type { AuditSession, Location, Scan, ScanSource } from "@/lib/types";
+import type { AuditSession, BuyersGuideRecord, Location, Scan, ScanSource } from "@/lib/types";
 import { formatVin } from "@/lib/vin";
 
 export default function ScanPage() {
@@ -29,6 +33,8 @@ export default function ScanPage() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [guide, setGuide] = useState<BuyersGuideRecord | null>(null);
+  const [guideBusy, setGuideBusy] = useState(false);
 
   const location = locations.find((l) => l.id === locationId) ?? locations[0];
 
@@ -54,6 +60,7 @@ export default function ScanPage() {
     setActiveLocation(id);
     setLocationId(id);
     setLast(null);
+    setGuide(null);
     const open = await startAudit(session, id);
     setAudit(open);
     const scans = await listScans(session.dealership.id, open.id);
@@ -73,6 +80,7 @@ export default function ScanPage() {
           return;
         }
         setLast(result.scan);
+        setGuide(await getBuyersGuide(session.dealership.id, result.scan.vin));
         if (result.duplicate) {
           setFlash("dup");
           setMessage("Already on this Walk Scan List.");
@@ -148,6 +156,26 @@ export default function ScanPage() {
           <p className="text-sm font-bold">
             {last.locationName} · {new Date(last.scannedAt).toLocaleTimeString()}
           </p>
+          <div className="mt-4 border-t-2 border-line pt-4 sunlight:border-slate-200">
+            <BuyersGuideToggle
+              record={guide}
+              busy={guideBusy}
+              compact
+              onChange={(verified) => {
+                void (async () => {
+                  setGuideBusy(true);
+                  try {
+                    setGuide(await setBuyersGuideVerified(session, last.vin, verified));
+                  } finally {
+                    setGuideBusy(false);
+                  }
+                })();
+              }}
+            />
+            <Link href={`/log/${last.vin}`} className="mt-3 inline-block text-sm font-extrabold text-cyan">
+              Open vehicle detail
+            </Link>
+          </div>
         </Card>
       ) : null}
     </div>

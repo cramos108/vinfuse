@@ -5,9 +5,15 @@ import { clearAllWalkHistory } from "./walkHistory";
 import { canAddLocation, canImportCsv, canInviteTeam, isPro, uniqueVinCount, vinCapReached } from "./plan";
 import { reconcileInventory } from "./reconcile";
 import { getSupabase, supabaseConfigured } from "./supabase";
+import {
+  getBuyersGuideLocal,
+  listBuyersGuideLocal,
+  upsertBuyersGuideLocal,
+} from "./buyersGuide";
 import type {
   AuditSession,
   AuthSession,
+  BuyersGuideRecord,
   Dealership,
   InventoryItem,
   Invite,
@@ -1094,6 +1100,117 @@ export async function setPlan(session: AuthSession, plan: Plan): Promise<Dealers
   dealer.plan = plan;
   saveDb(db);
   return dealer;
+}
+
+function mapBuyersGuideRow(row: {
+  vin: string;
+  dealership_id: string;
+  verified: boolean;
+  last_verified_at: string | null;
+  verified_by: string | null;
+  verifier_name: string | null;
+  updated_at: string;
+}): BuyersGuideRecord {
+  return {
+    vin: row.vin,
+    dealershipId: row.dealership_id,
+    verified: row.verified,
+    lastVerifiedAt: row.last_verified_at,
+    verifiedBy: row.verified_by,
+    verifierName: row.verifier_name,
+    updatedAt: row.updated_at,
+  };
+}
+
+function isMissingBuyersGuideTable(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  const message = (error.message ?? "").toLowerCase();
+  return (
+    error.code === "PGRST205" ||
+    error.code === "42P01" ||
+    message.includes("buyers_guide_verifications") ||
+    message.includes("schema cache")
+  );
+}
+
+export async function listBuyersGuide(dealershipId: string): Promise<BuyersGuideRecord[]> {
+  const sb = await cloudClient();
+  if (sb) {
+    const { data, error } = await sb
+      .from("buyers_guide_verifications")
+      .select("vin, dealership_id, verified, last_verified_at, verified_by, verifier_name, updated_at")
+      .eq("dealership_id", dealershipId);
+    if (!error) return (data ?? []).map(mapBuyersGuideRow);
+    if (!isMissingBuyersGuideTable(error)) throw new Error(error.message);
+  }
+  return listBuyersGuideLocal(dealershipId);
+}
+
+export async function getBuyersGuide(dealershipId: string, vin: string): Promise<BuyersGuideRecord | null> {
+  const key = normalizeVin(vin);
+  const sb = await cloudClient();
+  if (sb) {
+    const { data, error } = await sb
+      .from("buyers_guide_verifications")
+      .select("vin, dealership_id, verified, last_verified_at, verified_by, verifier_name, updated_at")
+      .eq("dealership_id", dealershipId)
+      .eq("vin", key)
+      .maybeSingle();
+    if (!error) return data ? mapBuyersGuideRow(data) : null;
+    if (!isMissingBuyersGuideTable(error)) throw new Error(error.message);
+  }
+  return getBuyersGuideLocal(dealershipId, key);
+}
+
+export async function setBuyersGuideVerified(
+  session: AuthSession,
+  vin: string,
+  verified: boolean,
+): Promise<BuyersGuideRecord> {
+  const key = normalizeVin(vin);
+  if (!isValidVin(key)) throw new Error("Need a valid 17-character VIN (no I, O, or Q).");
+  const previous = await getBuyersGuide(session.dealership.id, key);
+  const stamped = now();
+  const record: BuyersGuideRecord = {
+    vin: key,
+    dealershipId: session.dealership.id,
+    verified,
+    lastVerifiedAt: verified ? stamped : (previous?.lastVerifiedAt ?? null),
+    verifiedBy: verified ? session.user.id : (previous?.verifiedBy ?? null),
+    verifierName: verified ? session.user.fullName : (previous?.verifierName ?? null),
+    updatedAt: stamped,
+  };
+
+  const sb = await cloudClient();
+  if (sb) {
+    const { data, error } = await sb
+      .from("buyers_guide_verifications")
+      .upsert(
+        {
+          dealership_id: record.dealershipId,
+          vin: record.vin,
+          verified: record.verified,
+          last_verified_at: record.lastVerifiedAt,
+          verified_by: record.verifiedBy,
+          verifier_name: record.verifierName ?? "",
+          updated_at: record.updatedAt,
+        },
+        { onConflict: "dealership_id,vin" },
+      )
+      .select("vin, dealership_id, verified, last_verified_at, verified_by, verifier_name, updated_at")
+      .single();
+    if (!error && data) {
+      const mapped = mapBuyersGuideRow(data);
+      upsertBuyersGuideLocal(mapped);
+      emit();
+      return mapped;
+    }
+    if (error && !isMissingBuyersGuideTable(error)) throw new Error(error.message);
+  }
+
+  const saved = upsertBuyersGuideLocal(record);
+  emit();
+  return saved;
 }
 
 export async function renameDealership(session: AuthSession, name: string): Promise<Dealership> {

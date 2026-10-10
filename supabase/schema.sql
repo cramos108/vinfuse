@@ -83,6 +83,20 @@ create index if not exists scans_dealer_idx on public.scans (dealership_id, scan
 create index if not exists inventory_dealer_vin_idx on public.inventory_items (dealership_id, vin);
 create index if not exists audit_open_idx on public.audit_sessions (dealership_id, location_id, status);
 
+create table if not exists public.buyers_guide_verifications (
+  id uuid primary key default gen_random_uuid(),
+  dealership_id uuid not null references public.dealerships (id) on delete cascade,
+  vin text not null,
+  verified boolean not null default false,
+  last_verified_at timestamptz,
+  verified_by uuid references public.profiles (id) on delete set null,
+  verifier_name text not null default '',
+  updated_at timestamptz not null default now(),
+  unique (dealership_id, vin)
+);
+
+create index if not exists buyers_guide_dealer_vin_idx on public.buyers_guide_verifications (dealership_id, vin);
+
 create or replace function public.vinfuse_handle_new_user()
 returns trigger
 language plpgsql
@@ -143,6 +157,7 @@ alter table public.invites enable row level security;
 alter table public.audit_sessions enable row level security;
 alter table public.scans enable row level security;
 alter table public.inventory_items enable row level security;
+alter table public.buyers_guide_verifications enable row level security;
 
 create or replace function public.vinfuse_dealer_id()
 returns uuid
@@ -187,5 +202,10 @@ create policy scans_all on public.scans
 
 drop policy if exists inventory_all on public.inventory_items;
 create policy inventory_all on public.inventory_items
+  for all using (dealership_id = public.vinfuse_dealer_id())
+  with check (dealership_id = public.vinfuse_dealer_id());
+
+drop policy if exists buyers_guide_all on public.buyers_guide_verifications;
+create policy buyers_guide_all on public.buyers_guide_verifications
   for all using (dealership_id = public.vinfuse_dealer_id())
   with check (dealership_id = public.vinfuse_dealer_id());
