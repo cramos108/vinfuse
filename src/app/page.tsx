@@ -64,9 +64,8 @@ export default function LandingPage() {
                 </span>
               </h1>
               <p className="mt-5 max-w-xl text-lg font-medium text-slate-600">
-                {APP_NAME} is the physical inventory audit app for Buy Here Pay Here lots. Scan the printed VIN barcode
-                on the side window, build a Scan List on the walk, and (on Pro) compare it to your DMS Master List in
-                minutes.
+                Scan the printed VIN barcode and FTC Buyers Guide on the window, build a Scan List on the walk, and
+                audit lot compliance in minutes.
               </p>
               <figure className="mt-6 overflow-hidden rounded-3xl border-2 border-slate-200 bg-white shadow-sm">
                 <Image
