@@ -194,7 +194,7 @@ export default function LandingPage() {
               Security & Privacy
             </Link>
             <a href={ECOSYSTEM_URL} className="text-cyan-ink underline decoration-cyan">
-              {ECOSYSTEM} AI
+              {ECOSYSTEM} BHPH AI
             </a>
           </div>
         </div>
