@@ -16,8 +16,8 @@ import {
   listScans,
   logScan,
   setActiveLocation,
-  setBuyersGuideVerified,
   startAudit,
+  verifyBuyersGuidePresent,
 } from "@/lib/store";
 import type { AuditSession, BuyersGuideRecord, Location, Scan, ScanSource } from "@/lib/types";
 import { formatVin } from "@/lib/vin";
@@ -161,11 +161,11 @@ export default function ScanPage() {
               record={guide}
               busy={guideBusy}
               compact
-              onChange={(verified) => {
+              onVerify={() => {
                 void (async () => {
                   setGuideBusy(true);
                   try {
-                    setGuide(await setBuyersGuideVerified(session, last.vin, verified));
+                    setGuide(await verifyBuyersGuidePresent(session, last.vin));
                   } finally {
                     setGuideBusy(false);
                   }

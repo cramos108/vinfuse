@@ -7,7 +7,11 @@ import { ChevronLeft } from "lucide-react";
 import { useRequiredSession } from "@/components/AuthProvider";
 import { BuyersGuideToggle } from "@/components/BuyersGuideToggle";
 import { Button, Card } from "@/components/ui";
-import { BUYERS_GUIDE_CYCLE_DAYS, buyersGuideCycle } from "@/lib/buyersGuide";
+import {
+  BUYERS_GUIDE_VALID_MAX_DAYS,
+  BUYERS_GUIDE_WARNING_MAX_DAYS,
+  buyersGuideCycle,
+} from "@/lib/buyersGuide";
 import {
   getActiveLocationId,
   getBuyersGuide,
@@ -15,8 +19,8 @@ import {
   listInventory,
   listLocations,
   listScans,
-  setBuyersGuideVerified,
   startAudit,
+  verifyBuyersGuidePresent,
 } from "@/lib/store";
 import type { BuyersGuideRecord, InventoryItem, Scan } from "@/lib/types";
 import { formatVin, isValidVin, normalizeVin } from "@/lib/vin";
@@ -55,11 +59,11 @@ export default function ScannedVehiclePage() {
     void load();
   }, [load]);
 
-  async function toggleVerified(verified: boolean) {
+  async function verifyPresent() {
     setBusy(true);
     setError(null);
     try {
-      setRecord(await setBuyersGuideVerified(session, vin, verified));
+      setRecord(await verifyBuyersGuidePresent(session, vin));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save Buyers Guide verification.");
     } finally {
@@ -111,15 +115,17 @@ export default function ScannedVehiclePage() {
       </Card>
 
       <Card>
-        <BuyersGuideToggle record={record} busy={busy} onChange={(next) => void toggleVerified(next)} />
+        <BuyersGuideToggle record={record} busy={busy} onVerify={() => void verifyPresent()} />
         {error ? <p className="mt-3 font-bold text-alert">{error}</p> : null}
       </Card>
 
       <Card className="p-4">
-        <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">30-day cycle</p>
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Compliance window</p>
         <p className="mt-1 text-sm font-semibold text-muted sunlight:text-slate-600">
-          FTC window sticker verifications expire {BUYERS_GUIDE_CYCLE_DAYS} days after the last recorded check.
-          This unit is currently <span className="text-white sunlight:text-ink">{cycle.label}</span>.
+          Green (valid) {`0–${BUYERS_GUIDE_VALID_MAX_DAYS}`} days · Amber (warning){" "}
+          {`${BUYERS_GUIDE_VALID_MAX_DAYS + 1}–${BUYERS_GUIDE_WARNING_MAX_DAYS}`} days · Red (expired){" "}
+          {BUYERS_GUIDE_WARNING_MAX_DAYS + 1}+ days or unverified. This unit is currently{" "}
+          <span className="text-white sunlight:text-ink">{cycle.label}</span>.
         </p>
       </Card>
 

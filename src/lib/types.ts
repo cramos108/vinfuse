@@ -3,6 +3,8 @@ export type Role = "manager" | "porter";
 export type LocationKind = "sales_lot" | "service_center";
 export type ScanSource = "barcode" | "manual" | "ocr";
 export type AuditStatus = "open" | "closed";
+export type BuyersGuideStatus = "valid" | "warning" | "expired";
+export type BuyersGuideFilter = "all" | "valid" | "warning" | "expired";
 
 export type Dealership = {
   id: string;
@@ -55,17 +57,16 @@ export type Scan = {
   scannerName: string;
   scannedAt: string;
   source: ScanSource;
+  buyersGuideVerifiedAt?: string | null;
+  buyersGuideStatus?: BuyersGuideStatus;
 };
 
 /** FTC Used Car Rule window-sticker (Buyers Guide) verification. */
-export type BuyersGuideStatus = "missing" | "verified" | "overdue";
-export type BuyersGuideFilter = "all" | "missing" | "overdue";
-
 export type BuyersGuideRecord = {
   vin: string;
   dealershipId: string;
-  verified: boolean;
-  lastVerifiedAt: string | null;
+  buyersGuideVerifiedAt: string | null;
+  buyersGuideStatus: BuyersGuideStatus;
   verifiedBy: string | null;
   verifierName: string | null;
   updatedAt: string;

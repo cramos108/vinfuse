@@ -2,40 +2,68 @@ import { downloadTextFile } from "./auditReport";
 import type { BuyersGuideFilter, BuyersGuideRecord, BuyersGuideStatus, Scan } from "./types";
 import { formatVin, normalizeVin } from "./vin";
 
-export const BUYERS_GUIDE_CYCLE_DAYS = 30;
-export const BUYERS_GUIDE_CYCLE_MS = BUYERS_GUIDE_CYCLE_DAYS * 24 * 60 * 60 * 1000;
+/** Green ("valid"): 0–29 days since buyersGuideVerifiedAt. */
+export const BUYERS_GUIDE_VALID_MAX_DAYS = 29;
+/** Amber ("warning"): 30–45 days. Re-check on the next lot walk. */
+export const BUYERS_GUIDE_WARNING_MAX_DAYS = 45;
 export const BUYERS_GUIDE_KEY = "vinfuse.buyersGuide.v1";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 export const BUYERS_GUIDE_STATUS_LABEL: Record<BuyersGuideStatus, string> = {
-  missing: "Missing Guide",
-  overdue: "Buyers Guide Audit Overdue",
-  verified: "Buyers Guide Verified",
+  valid: "Compliant",
+  warning: "Re-check Due",
+  expired: "Non-Compliant / Missing",
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+export const BUYERS_GUIDE_STATUS_TONE: Record<BuyersGuideStatus, "ok" | "warn" | "alert"> = {
+  valid: "ok",
+  warning: "warn",
+  expired: "alert",
+};
+
+type LegacyRecord = Partial<BuyersGuideRecord> & {
+  lastVerifiedAt?: string | null;
+  verified?: boolean;
+};
+
+export function buyersGuideDaysElapsed(verifiedAt: string | null | undefined, at = Date.now()): number | null {
+  if (!verifiedAt) return null;
+  const t = new Date(verifiedAt).getTime();
+  if (!Number.isFinite(t)) return null;
+  return Math.floor(Math.max(0, at - t) / DAY_MS);
+}
+
+export function buyersGuideStatusFromAt(
+  verifiedAt: string | null | undefined,
+  at = Date.now(),
+): BuyersGuideStatus {
+  const days = buyersGuideDaysElapsed(verifiedAt, at);
+  if (days === null) return "expired";
+  if (days <= BUYERS_GUIDE_VALID_MAX_DAYS) return "valid";
+  if (days <= BUYERS_GUIDE_WARNING_MAX_DAYS) return "warning";
+  return "expired";
+}
 
 export function buyersGuideStatus(
   record: BuyersGuideRecord | null | undefined,
   at = Date.now(),
 ): BuyersGuideStatus {
-  if (!record?.verified || !record.lastVerifiedAt) return "missing";
-  const verifiedAt = new Date(record.lastVerifiedAt).getTime();
-  if (!Number.isFinite(verifiedAt)) return "missing";
-  if (at - verifiedAt >= BUYERS_GUIDE_CYCLE_MS) return "overdue";
-  return "verified";
+  return buyersGuideStatusFromAt(record?.buyersGuideVerifiedAt, at);
 }
 
-export function buyersGuideExpiresAt(lastVerifiedAt: string | null | undefined): string | null {
-  if (!lastVerifiedAt) return null;
-  const t = new Date(lastVerifiedAt).getTime();
+export function buyersGuideWarningAt(verifiedAt: string | null | undefined): string | null {
+  if (!verifiedAt) return null;
+  const t = new Date(verifiedAt).getTime();
   if (!Number.isFinite(t)) return null;
-  return new Date(t + BUYERS_GUIDE_CYCLE_MS).toISOString();
+  return new Date(t + (BUYERS_GUIDE_VALID_MAX_DAYS + 1) * DAY_MS).toISOString();
 }
 
-export function buyersGuideDaysRemaining(lastVerifiedAt: string | null | undefined, at = Date.now()): number | null {
-  const expires = buyersGuideExpiresAt(lastVerifiedAt);
-  if (!expires) return null;
-  return Math.ceil((new Date(expires).getTime() - at) / DAY_MS);
+export function buyersGuideExpiredAt(verifiedAt: string | null | undefined): string | null {
+  if (!verifiedAt) return null;
+  const t = new Date(verifiedAt).getTime();
+  if (!Number.isFinite(t)) return null;
+  return new Date(t + (BUYERS_GUIDE_WARNING_MAX_DAYS + 1) * DAY_MS).toISOString();
 }
 
 export function formatBuyersGuideWhen(iso: string | null | undefined): string {
@@ -48,29 +76,68 @@ export function formatBuyersGuideWhen(iso: string | null | undefined): string {
 export type BuyersGuideCycle = {
   status: BuyersGuideStatus;
   label: string;
-  lastVerifiedAt: string | null;
-  expiresAt: string | null;
-  daysRemaining: number | null;
+  buyersGuideVerifiedAt: string | null;
+  daysElapsed: number | null;
+  warningAt: string | null;
+  expiredAt: string | null;
 };
 
 export function buyersGuideCycle(record: BuyersGuideRecord | null | undefined, at = Date.now()): BuyersGuideCycle {
-  const lastVerifiedAt = record?.lastVerifiedAt ?? null;
-  const status = buyersGuideStatus(record, at);
+  const buyersGuideVerifiedAt = record?.buyersGuideVerifiedAt ?? null;
+  const status = buyersGuideStatusFromAt(buyersGuideVerifiedAt, at);
   return {
     status,
     label: BUYERS_GUIDE_STATUS_LABEL[status],
-    lastVerifiedAt,
-    expiresAt: buyersGuideExpiresAt(lastVerifiedAt),
-    daysRemaining: buyersGuideDaysRemaining(lastVerifiedAt, at),
+    buyersGuideVerifiedAt,
+    daysElapsed: buyersGuideDaysElapsed(buyersGuideVerifiedAt, at),
+    warningAt: buyersGuideWarningAt(buyersGuideVerifiedAt),
+    expiredAt: buyersGuideExpiredAt(buyersGuideVerifiedAt),
   };
 }
 
-export function matchesBuyersGuideFilter(
-  status: BuyersGuideStatus,
-  filter: BuyersGuideFilter,
-): boolean {
+export function matchesBuyersGuideFilter(status: BuyersGuideStatus, filter: BuyersGuideFilter): boolean {
   if (filter === "all") return true;
   return status === filter;
+}
+
+export function makeBuyersGuideRecord(input: {
+  vin: string;
+  dealershipId: string;
+  buyersGuideVerifiedAt: string | null;
+  verifiedBy: string | null;
+  verifierName: string | null;
+  updatedAt: string;
+  at?: number;
+}): BuyersGuideRecord {
+  const vin = normalizeVin(input.vin);
+  const buyersGuideVerifiedAt = input.buyersGuideVerifiedAt;
+  return {
+    vin,
+    dealershipId: input.dealershipId,
+    buyersGuideVerifiedAt,
+    buyersGuideStatus: buyersGuideStatusFromAt(buyersGuideVerifiedAt, input.at),
+    verifiedBy: input.verifiedBy,
+    verifierName: input.verifierName,
+    updatedAt: input.updatedAt,
+  };
+}
+
+export function coerceBuyersGuideRecord(raw: LegacyRecord, at = Date.now()): BuyersGuideRecord | null {
+  const vin = normalizeVin(raw.vin ?? "");
+  const dealershipId = raw.dealershipId ?? "";
+  if (!vin || !dealershipId) return null;
+  const stamped =
+    raw.buyersGuideVerifiedAt ??
+    (raw.verified === false ? null : (raw.lastVerifiedAt ?? null));
+  return makeBuyersGuideRecord({
+    vin,
+    dealershipId,
+    buyersGuideVerifiedAt: stamped,
+    verifiedBy: raw.verifiedBy ?? null,
+    verifierName: raw.verifierName ?? null,
+    updatedAt: raw.updatedAt ?? stamped ?? new Date(at).toISOString(),
+    at,
+  });
 }
 
 function loadAllLocal(): BuyersGuideRecord[] {
@@ -78,8 +145,11 @@ function loadAllLocal(): BuyersGuideRecord[] {
   try {
     const raw = localStorage.getItem(BUYERS_GUIDE_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw) as BuyersGuideRecord[];
-    return Array.isArray(parsed) ? parsed : [];
+    const parsed = JSON.parse(raw) as LegacyRecord[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((row) => coerceBuyersGuideRecord(row))
+      .filter((row): row is BuyersGuideRecord => row !== null);
   } catch {
     return [];
   }
@@ -99,27 +169,51 @@ export function getBuyersGuideLocal(dealershipId: string, vin: string): BuyersGu
 }
 
 export function upsertBuyersGuideLocal(record: BuyersGuideRecord): BuyersGuideRecord {
-  const vin = normalizeVin(record.vin);
-  const next: BuyersGuideRecord = { ...record, vin };
-  const rows = loadAllLocal().filter(
-    (row) => !(row.dealershipId === next.dealershipId && row.vin === vin),
-  );
-  rows.push(next);
-  saveAllLocal(rows);
+  return upsertBuyersGuideLocalMany([record])[0];
+}
+
+export function upsertBuyersGuideLocalMany(records: BuyersGuideRecord[]): BuyersGuideRecord[] {
+  const incoming = new Map(records.map((row) => [`${row.dealershipId}:${normalizeVin(row.vin)}`, row]));
+  const rows = loadAllLocal().filter((row) => !incoming.has(`${row.dealershipId}:${row.vin}`));
+  const next = [...incoming.values()];
+  saveAllLocal([...rows, ...next]);
   return next;
+}
+
+export type BuyersGuideCounts = {
+  total: number;
+  valid: number;
+  warning: number;
+  expired: number;
+};
+
+export function buyersGuideCounts(
+  vins: string[],
+  records: BuyersGuideRecord[],
+  at = Date.now(),
+): BuyersGuideCounts {
+  const byVin = new Map(records.map((row) => [row.vin, row]));
+  const seen = new Set<string>();
+  const counts: BuyersGuideCounts = { total: 0, valid: 0, warning: 0, expired: 0 };
+  for (const vin of vins) {
+    if (seen.has(vin)) continue;
+    seen.add(vin);
+    counts.total += 1;
+    counts[buyersGuideStatus(byVin.get(vin) ?? null, at)] += 1;
+  }
+  return counts;
 }
 
 export type BuyersGuideExportRow = {
   vin: string;
   status: BuyersGuideStatus;
   statusLabel: string;
-  lastVerifiedAt: string | null;
-  lastVerifiedAtLocal: string;
+  buyersGuideVerifiedAt: string | null;
+  buyersGuideVerifiedAtLocal: string;
+  daysElapsed: number | null;
   verifiedBy: string;
-  expiresAt: string | null;
-  expiresAtLocal: string;
-  daysRemaining: number | null;
-  currentlyPosted: boolean;
+  scannedAt: string | null;
+  scannerName: string;
 };
 
 export type BuyersGuideExportMeta = {
@@ -146,13 +240,12 @@ export function buildBuyersGuideExportRows(
       vin: scan.vin,
       status: cycle.status,
       statusLabel: cycle.label,
-      lastVerifiedAt: cycle.lastVerifiedAt,
-      lastVerifiedAtLocal: formatBuyersGuideWhen(cycle.lastVerifiedAt),
+      buyersGuideVerifiedAt: cycle.buyersGuideVerifiedAt,
+      buyersGuideVerifiedAtLocal: formatBuyersGuideWhen(cycle.buyersGuideVerifiedAt),
+      daysElapsed: cycle.daysElapsed,
       verifiedBy: record?.verifierName ?? "",
-      expiresAt: cycle.expiresAt,
-      expiresAtLocal: formatBuyersGuideWhen(cycle.expiresAt),
-      daysRemaining: cycle.daysRemaining,
-      currentlyPosted: Boolean(record?.verified),
+      scannedAt: scan.scannedAt,
+      scannerName: scan.scannerName,
     });
   }
   return rows.sort((a, b) => a.vin.localeCompare(b.vin));
@@ -166,45 +259,43 @@ function csvCell(value: string): string {
 export function buyersGuideExportStem(meta: BuyersGuideExportMeta): string {
   const day = new Date(meta.generatedAt).toISOString().slice(0, 10);
   const lot = meta.locationName.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "");
-  return `VinFuse-Buyers-Guide-Audit-${lot || "Lot"}-${day}`;
+  return `VinFuse-Walk-Report-${lot || "Lot"}-${day}`;
 }
 
-export function buildBuyersGuideCsv(meta: BuyersGuideExportMeta, rows: BuyersGuideExportRow[]): string {
+export function buildWalkReportCsv(meta: BuyersGuideExportMeta, rows: BuyersGuideExportRow[]): string {
   const header = [
-    "FTC Buyers Guide Audit Summary",
+    "VinFuse Walk Report · FTC Buyers Guide",
     `Dealership,${csvCell(meta.dealershipName)}`,
     `Location,${csvCell(meta.locationName)}`,
     `Prepared by,${csvCell(meta.generatedBy)}`,
     `Generated,${csvCell(new Date(meta.generatedAt).toLocaleString())}`,
-    `Verification cycle (days),${BUYERS_GUIDE_CYCLE_DAYS}`,
+    "Status window,valid 0-29 days; warning 30-45 days; expired 46+ days or unverified",
     `Vehicles,${rows.length}`,
-    `Missing Guide,${rows.filter((r) => r.status === "missing").length}`,
-    `Buyers Guide Audit Overdue,${rows.filter((r) => r.status === "overdue").length}`,
-    `Buyers Guide Verified,${rows.filter((r) => r.status === "verified").length}`,
+    `Compliant (Green),${rows.filter((r) => r.status === "valid").length}`,
+    `Re-check Due (Amber),${rows.filter((r) => r.status === "warning").length}`,
+    `Non-Compliant / Missing (Red),${rows.filter((r) => r.status === "expired").length}`,
     "",
     [
       "VIN",
-      "Status",
-      "Last verified (ISO)",
-      "Last verified",
+      "Scanned at",
+      "Scanner",
+      "Buyers Guide status",
+      "buyersGuideVerifiedAt (ISO)",
+      "Buyers Guide verified at",
+      "Days elapsed",
       "Verified by",
-      "Expires (ISO)",
-      "Expires",
-      "Days remaining",
-      "Window sticker posted",
     ].join(","),
   ];
   const body = rows.map((row) =>
     [
       formatVin(row.vin),
+      row.scannedAt ? new Date(row.scannedAt).toLocaleString() : "",
+      row.scannerName,
       row.statusLabel,
-      row.lastVerifiedAt ?? "",
-      row.lastVerifiedAt ? row.lastVerifiedAtLocal : "",
+      row.buyersGuideVerifiedAt ?? "",
+      row.buyersGuideVerifiedAt ? row.buyersGuideVerifiedAtLocal : "",
+      row.daysElapsed === null ? "" : String(row.daysElapsed),
       row.verifiedBy,
-      row.expiresAt ?? "",
-      row.expiresAt ? row.expiresAtLocal : "",
-      row.daysRemaining === null ? "" : String(row.daysRemaining),
-      row.currentlyPosted ? "Yes" : "No",
     ]
       .map(csvCell)
       .join(","),
@@ -212,30 +303,38 @@ export function buildBuyersGuideCsv(meta: BuyersGuideExportMeta, rows: BuyersGui
   return [...header, ...body, ""].join("\n");
 }
 
+export function buildBuyersGuideCsv(meta: BuyersGuideExportMeta, rows: BuyersGuideExportRow[]): string {
+  return buildWalkReportCsv(meta, rows);
+}
+
 export function buildBuyersGuideJson(meta: BuyersGuideExportMeta, rows: BuyersGuideExportRow[]): string {
   return `${JSON.stringify(
     {
-      title: "FTC Buyers Guide Audit Summary",
+      title: "VinFuse Walk Report · FTC Buyers Guide",
       dealership: meta.dealershipName,
       location: meta.locationName,
       generatedBy: meta.generatedBy,
       generatedAt: meta.generatedAt,
-      cycleDays: BUYERS_GUIDE_CYCLE_DAYS,
+      windows: {
+        valid: "0-29 days",
+        warning: "30-45 days",
+        expired: "46+ days or unverified",
+      },
       counts: {
         vehicles: rows.length,
-        missing: rows.filter((r) => r.status === "missing").length,
-        overdue: rows.filter((r) => r.status === "overdue").length,
-        verified: rows.filter((r) => r.status === "verified").length,
+        valid: rows.filter((r) => r.status === "valid").length,
+        warning: rows.filter((r) => r.status === "warning").length,
+        expired: rows.filter((r) => r.status === "expired").length,
       },
       vehicles: rows.map((row) => ({
         vin: row.vin,
-        status: row.status,
+        buyersGuideStatus: row.status,
         statusLabel: row.statusLabel,
-        lastVerifiedAt: row.lastVerifiedAt,
+        buyersGuideVerifiedAt: row.buyersGuideVerifiedAt,
+        daysElapsed: row.daysElapsed,
         verifiedBy: row.verifiedBy || null,
-        expiresAt: row.expiresAt,
-        daysRemaining: row.daysRemaining,
-        windowStickerPosted: row.currentlyPosted,
+        scannedAt: row.scannedAt,
+        scannerName: row.scannerName,
       })),
     },
     null,
@@ -255,5 +354,18 @@ export function downloadBuyersGuideSummary(
     downloadTextFile(`${stem}.json`, buildBuyersGuideJson(meta, rows), "application/json;charset=utf-8");
     return;
   }
-  downloadTextFile(`${stem}.csv`, buildBuyersGuideCsv(meta, rows));
+  downloadTextFile(`${stem}.csv`, buildWalkReportCsv(meta, rows));
+}
+
+export function attachBuyersGuideToScan(
+  scan: Scan,
+  record: BuyersGuideRecord | null,
+  at = Date.now(),
+): Scan {
+  const cycle = buyersGuideCycle(record, at);
+  return {
+    ...scan,
+    buyersGuideVerifiedAt: cycle.buyersGuideVerifiedAt,
+    buyersGuideStatus: cycle.status,
+  };
 }

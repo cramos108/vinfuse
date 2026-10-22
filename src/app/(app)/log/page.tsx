@@ -4,15 +4,18 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { FileDown, History, Printer, Share2, Trash2 } from "lucide-react";
 import { useRequiredSession } from "@/components/AuthProvider";
-import { BuyersGuideBadge } from "@/components/BuyersGuideToggle";
+import { BuyersGuideBadge, BuyersGuideVerifyButton } from "@/components/BuyersGuideToggle";
 import { WalkPrintReport } from "@/components/WalkPrintReport";
-import { Button, Card } from "@/components/ui";
+import { Button, Card, Stat } from "@/components/ui";
 import {
   BUYERS_GUIDE_STATUS_LABEL,
+  attachBuyersGuideToScan,
+  buyersGuideCounts,
   buyersGuideStatus,
   downloadBuyersGuideSummary,
   matchesBuyersGuideFilter,
 } from "@/lib/buyersGuide";
+import { isManager } from "@/lib/plan";
 import {
   closeAudit,
   deleteScan,
@@ -23,6 +26,8 @@ import {
   listScans,
   startAudit,
   subscribeStore,
+  verifyBuyersGuideBatch,
+  verifyBuyersGuidePresent,
 } from "@/lib/store";
 import { TERMS } from "@/lib/terms";
 import type { BuyersGuideFilter, BuyersGuideRecord, Scan } from "@/lib/types";
@@ -30,9 +35,10 @@ import { archiveClosedWalk, printWalkReport, shareWalkText, walkShareText } from
 import { formatVin } from "@/lib/vin";
 
 const LOT_FILTERS: Array<{ id: BuyersGuideFilter; label: string }> = [
-  { id: "all", label: "All units" },
-  { id: "overdue", label: BUYERS_GUIDE_STATUS_LABEL.overdue },
-  { id: "missing", label: BUYERS_GUIDE_STATUS_LABEL.missing },
+  { id: "all", label: "Buyers Guide Audit" },
+  { id: "valid", label: BUYERS_GUIDE_STATUS_LABEL.valid },
+  { id: "warning", label: BUYERS_GUIDE_STATUS_LABEL.warning },
+  { id: "expired", label: BUYERS_GUIDE_STATUS_LABEL.expired },
 ];
 
 export default function LogPage() {
@@ -44,6 +50,7 @@ export default function LogPage() {
   const [locationName, setLocationName] = useState("Lot");
   const [notice, setNotice] = useState<string | null>(null);
   const [filter, setFilter] = useState<BuyersGuideFilter>("all");
+  const [verifyVin, setVerifyVin] = useState<string | null>(null);
 
   async function load() {
     if (!session.dealership.id) return;
@@ -71,11 +78,45 @@ export default function LogPage() {
   }, [session.dealership.id]);
 
   const guideByVin = useMemo(() => new Map(guides.map((row) => [row.vin, row])), [guides]);
-  const missingCount = scans.filter((scan) => buyersGuideStatus(guideByVin.get(scan.vin) ?? null) === "missing").length;
-  const overdueCount = scans.filter((scan) => buyersGuideStatus(guideByVin.get(scan.vin) ?? null) === "overdue").length;
+  const counts = useMemo(
+    () => buyersGuideCounts(scans.map((scan) => scan.vin), guides),
+    [scans, guides],
+  );
   const visible = scans.filter((scan) =>
     matchesBuyersGuideFilter(buyersGuideStatus(guideByVin.get(scan.vin) ?? null), filter),
   );
+  const annotated = useMemo(
+    () => scans.map((scan) => attachBuyersGuideToScan(scan, guideByVin.get(scan.vin) ?? null)),
+    [scans, guideByVin],
+  );
+
+  async function verifyOne(vin: string) {
+    setVerifyVin(vin);
+    try {
+      await verifyBuyersGuidePresent(session, vin);
+      setNotice(`Buyers Guide verified on ${formatVin(vin)}.`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not verify Buyers Guide.");
+    } finally {
+      setVerifyVin(null);
+    }
+  }
+
+  async function verifyWalk() {
+    if (!scans.length) return;
+    if (!confirm(`Stamp Buyers Guide verified now on ${scans.length} unit${scans.length === 1 ? "" : "s"} on this walk?`)) {
+      return;
+    }
+    setVerifyVin("*");
+    try {
+      await verifyBuyersGuideBatch(session, scans.map((scan) => scan.vin));
+      setNotice(`Buyers Guide verified on ${scans.length} unit${scans.length === 1 ? "" : "s"}.`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not batch-verify Buyers Guide.");
+    } finally {
+      setVerifyVin(null);
+    }
+  }
 
   function exportSummary(format: "csv" | "json") {
     downloadBuyersGuideSummary(
@@ -101,7 +142,7 @@ export default function LogPage() {
       locationName,
       startedAt,
       closedBy: session.user.fullName,
-      scans,
+      scans: annotated,
     });
     await closeAudit(auditId);
     setNotice(
@@ -136,11 +177,13 @@ export default function LogPage() {
           closedBy: session.user.fullName,
           startedAt,
           closedAt: new Date().toISOString(),
-          vins: scans.map((s) => ({
+          vins: annotated.map((s) => ({
             vin: s.vin,
             scannedAt: s.scannedAt,
             scannerName: s.scannerName,
             source: s.source,
+            buyersGuideVerifiedAt: s.buyersGuideVerifiedAt ?? null,
+            buyersGuideStatus: s.buyersGuideStatus,
           })),
         }),
       );
@@ -194,21 +237,34 @@ export default function LogPage() {
         <div className="grid grid-cols-2 gap-3">
           <Button variant="line" className="text-xs" onClick={() => exportSummary("csv")} disabled={scans.length === 0}>
             <FileDown className="h-5 w-5" />
-            Audit CSV
+            Walk CSV
           </Button>
           <Button variant="line" className="text-xs" onClick={() => exportSummary("json")} disabled={scans.length === 0}>
             <FileDown className="h-5 w-5" />
-            Audit JSON
+            Walk JSON
           </Button>
         </div>
         {notice ? <p className="text-sm font-bold text-ok">{notice}</p> : null}
 
         {scans.length > 0 ? (
-          <div className="flex flex-col gap-2">
-            <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Buyers Guide</p>
+          <div className="flex flex-col gap-3">
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Buyers Guide Audit</p>
+            <div className="grid grid-cols-2 gap-2">
+              <Stat label="Total Lot Units" value={counts.total} />
+              <Stat label="Compliant" value={counts.valid} tone="ok" />
+              <Stat label="Re-check Due" value={counts.warning} tone="warn" />
+              <Stat label="Non-Compliant" value={counts.expired} tone="alert" />
+            </div>
             <div className="flex flex-col gap-2">
               {LOT_FILTERS.map((chip) => {
-                const count = chip.id === "missing" ? missingCount : chip.id === "overdue" ? overdueCount : scans.length;
+                const count =
+                  chip.id === "valid"
+                    ? counts.valid
+                    : chip.id === "warning"
+                      ? counts.warning
+                      : chip.id === "expired"
+                        ? counts.expired
+                        : counts.total;
                 const active = filter === chip.id;
                 return (
                   <button
@@ -225,6 +281,11 @@ export default function LogPage() {
                 );
               })}
             </div>
+            {isManager(session.user.role) ? (
+              <Button variant="ok" className="w-full" disabled={verifyVin !== null} onClick={() => void verifyWalk()}>
+                Verify all window stickers
+              </Button>
+            ) : null}
           </div>
         ) : null}
 
@@ -234,9 +295,7 @@ export default function LogPage() {
           </Card>
         ) : visible.length === 0 ? (
           <Card>
-            <p className="font-bold">
-              No units match {filter === "overdue" ? "Buyers Guide Audit Overdue" : "Missing Guide"} on this lot.
-            </p>
+            <p className="font-bold">No units match {BUYERS_GUIDE_STATUS_LABEL[filter === "all" ? "expired" : filter]} on this lot.</p>
           </Card>
         ) : (
           <ul className="flex flex-col gap-2">
@@ -244,24 +303,31 @@ export default function LogPage() {
               const status = buyersGuideStatus(guideByVin.get(scan.vin) ?? null);
               return (
                 <li key={scan.id}>
-                  <Card className="flex items-start justify-between gap-3 p-4">
-                    <Link href={`/log/${scan.vin}`} className="min-w-0 flex-1">
-                      <p className="font-mono text-lg font-black tracking-wide text-cyan">{formatVin(scan.vin)}</p>
-                      <p className="text-sm font-semibold text-muted sunlight:text-slate-600">
-                        {scan.scannerName} · {scan.source === "barcode" ? "Barcode" : "Typed"} ·{" "}
-                        {new Date(scan.scannedAt).toLocaleString()}
-                      </p>
-                      <BuyersGuideBadge status={status} />
-                    </Link>
-                    <button
-                      type="button"
-                      aria-label={`Remove ${formatVin(scan.vin)}`}
-                      title="Remove accidental scan"
-                      className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-muted hover:bg-alert/10 hover:text-alert sunlight:text-slate-400"
-                      onClick={() => void removeScan(scan)}
-                    >
-                      <Trash2 className="h-5 w-5" />
-                    </button>
+                  <Card className="flex flex-col gap-3 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <Link href={`/log/${scan.vin}`} className="min-w-0 flex-1">
+                        <p className="font-mono text-lg font-black tracking-wide text-cyan">{formatVin(scan.vin)}</p>
+                        <p className="text-sm font-semibold text-muted sunlight:text-slate-600">
+                          {scan.scannerName} · {scan.source === "barcode" ? "Barcode" : "Typed"} ·{" "}
+                          {new Date(scan.scannedAt).toLocaleString()}
+                        </p>
+                        <BuyersGuideBadge status={status} />
+                      </Link>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${formatVin(scan.vin)}`}
+                        title="Remove accidental scan"
+                        className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-muted hover:bg-alert/10 hover:text-alert sunlight:text-slate-400"
+                        onClick={() => void removeScan(scan)}
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </button>
+                    </div>
+                    <BuyersGuideVerifyButton
+                      busy={verifyVin === scan.vin || verifyVin === "*"}
+                      compact
+                      onVerify={() => void verifyOne(scan.vin)}
+                    />
                   </Card>
                 </li>
               );
@@ -276,11 +342,13 @@ export default function LogPage() {
         closedBy={session.user.fullName}
         startedAt={startedAt}
         closedAt="open"
-        vins={scans.map((s) => ({
+        vins={annotated.map((s) => ({
           vin: s.vin,
           scannedAt: s.scannedAt,
           scannerName: s.scannerName,
           source: s.source,
+          buyersGuideVerifiedAt: s.buyersGuideVerifiedAt ?? null,
+          buyersGuideStatus: s.buyersGuideStatus,
         }))}
       />
     </div>

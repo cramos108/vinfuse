@@ -1,6 +1,7 @@
 "use client";
 
-import type { Scan, ScanSource } from "./types";
+import { BUYERS_GUIDE_STATUS_LABEL, formatBuyersGuideWhen } from "./buyersGuide";
+import type { BuyersGuideStatus, Scan, ScanSource } from "./types";
 import { formatVin } from "./vin";
 
 const KEY = "vinfuse.walkHistory.v1";
@@ -11,6 +12,8 @@ export type ArchivedVin = {
   scannedAt: string;
   scannerName: string;
   source: ScanSource;
+  buyersGuideVerifiedAt?: string | null;
+  buyersGuideStatus?: BuyersGuideStatus;
 };
 
 export type ArchivedWalk = {
@@ -72,6 +75,8 @@ export function archiveClosedWalk(input: {
       scannedAt: s.scannedAt,
       scannerName: s.scannerName,
       source: s.source,
+      buyersGuideVerifiedAt: s.buyersGuideVerifiedAt ?? null,
+      buyersGuideStatus: s.buyersGuideStatus,
     })),
   };
   const next = [walk, ...loadAll().filter((w) => w.id !== walk.id)];
@@ -102,10 +107,10 @@ export function walkShareText(walk: {
     `Closed ${new Date(walk.closedAt).toLocaleString()} by ${walk.closedBy}`,
     `${walk.vins.length} VIN${walk.vins.length === 1 ? "" : "s"}`,
     "",
-    ...walk.vins.map(
-      (v, i) =>
-        `${i + 1}. ${formatVin(v.vin)}  ${new Date(v.scannedAt).toLocaleString()}  ${v.scannerName}`,
-    ),
+    ...walk.vins.map((v, i) => {
+      const status = v.buyersGuideStatus ? BUYERS_GUIDE_STATUS_LABEL[v.buyersGuideStatus] : "Non-Compliant / Missing";
+      return `${i + 1}. ${formatVin(v.vin)}  ${new Date(v.scannedAt).toLocaleString()}  ${v.scannerName}  Buyers Guide: ${status}  verified ${formatBuyersGuideWhen(v.buyersGuideVerifiedAt ?? null)}`;
+    }),
     "",
     "Stored on this device. Not uploaded to VinFuse.",
   ];

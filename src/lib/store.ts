@@ -8,7 +8,8 @@ import { getSupabase, supabaseConfigured } from "./supabase";
 import {
   getBuyersGuideLocal,
   listBuyersGuideLocal,
-  upsertBuyersGuideLocal,
+  makeBuyersGuideRecord,
+  upsertBuyersGuideLocalMany,
 } from "./buyersGuide";
 import type {
   AuditSession,
@@ -1111,15 +1112,14 @@ function mapBuyersGuideRow(row: {
   verifier_name: string | null;
   updated_at: string;
 }): BuyersGuideRecord {
-  return {
+  return makeBuyersGuideRecord({
     vin: row.vin,
     dealershipId: row.dealership_id,
-    verified: row.verified,
-    lastVerifiedAt: row.last_verified_at,
+    buyersGuideVerifiedAt: row.verified === false ? null : row.last_verified_at,
     verifiedBy: row.verified_by,
     verifierName: row.verifier_name,
     updatedAt: row.updated_at,
-  };
+  });
 }
 
 function isMissingBuyersGuideTable(error: { code?: string; message?: string } | null): boolean {
@@ -1162,55 +1162,78 @@ export async function getBuyersGuide(dealershipId: string, vin: string): Promise
   return getBuyersGuideLocal(dealershipId, key);
 }
 
-export async function setBuyersGuideVerified(
-  session: AuthSession,
-  vin: string,
-  verified: boolean,
-): Promise<BuyersGuideRecord> {
-  const key = normalizeVin(vin);
-  if (!isValidVin(key)) throw new Error("Need a valid 17-character VIN (no I, O, or Q).");
-  const previous = await getBuyersGuide(session.dealership.id, key);
-  const stamped = now();
-  const record: BuyersGuideRecord = {
-    vin: key,
-    dealershipId: session.dealership.id,
-    verified,
-    lastVerifiedAt: verified ? stamped : (previous?.lastVerifiedAt ?? null),
-    verifiedBy: verified ? session.user.id : (previous?.verifiedBy ?? null),
-    verifierName: verified ? session.user.fullName : (previous?.verifierName ?? null),
-    updatedAt: stamped,
-  };
-
+async function persistBuyersGuideRecords(
+  records: BuyersGuideRecord[],
+): Promise<BuyersGuideRecord[]> {
+  if (records.length === 0) return [];
   const sb = await cloudClient();
   if (sb) {
     const { data, error } = await sb
       .from("buyers_guide_verifications")
       .upsert(
-        {
+        records.map((record) => ({
           dealership_id: record.dealershipId,
           vin: record.vin,
-          verified: record.verified,
-          last_verified_at: record.lastVerifiedAt,
+          verified: Boolean(record.buyersGuideVerifiedAt),
+          last_verified_at: record.buyersGuideVerifiedAt,
           verified_by: record.verifiedBy,
           verifier_name: record.verifierName ?? "",
           updated_at: record.updatedAt,
-        },
+        })),
         { onConflict: "dealership_id,vin" },
       )
-      .select("vin, dealership_id, verified, last_verified_at, verified_by, verifier_name, updated_at")
-      .single();
+      .select("vin, dealership_id, verified, last_verified_at, verified_by, verifier_name, updated_at");
     if (!error && data) {
-      const mapped = mapBuyersGuideRow(data);
-      upsertBuyersGuideLocal(mapped);
+      const mapped = data.map(mapBuyersGuideRow);
+      upsertBuyersGuideLocalMany(mapped);
       emit();
       return mapped;
     }
     if (error && !isMissingBuyersGuideTable(error)) throw new Error(error.message);
   }
-
-  const saved = upsertBuyersGuideLocal(record);
+  const saved = upsertBuyersGuideLocalMany(records);
   emit();
   return saved;
+}
+
+export async function setBuyersGuideVerified(
+  session: AuthSession,
+  vin: string,
+  verified = true,
+): Promise<BuyersGuideRecord> {
+  const key = normalizeVin(vin);
+  if (!isValidVin(key)) throw new Error("Need a valid 17-character VIN (no I, O, or Q).");
+  const stamped = now();
+  const record = makeBuyersGuideRecord({
+    vin: key,
+    dealershipId: session.dealership.id,
+    buyersGuideVerifiedAt: verified ? stamped : null,
+    verifiedBy: verified ? session.user.id : null,
+    verifierName: verified ? session.user.fullName : null,
+    updatedAt: stamped,
+  });
+  const saved = await persistBuyersGuideRecords([record]);
+  return saved[0] ?? record;
+}
+
+export async function verifyBuyersGuidePresent(session: AuthSession, vin: string): Promise<BuyersGuideRecord> {
+  return setBuyersGuideVerified(session, vin, true);
+}
+
+export async function verifyBuyersGuideBatch(session: AuthSession, vins: string[]): Promise<BuyersGuideRecord[]> {
+  const stamped = now();
+  const unique = [...new Set(vins.map(normalizeVin).filter(isValidVin))];
+  const records = unique.map((vin) =>
+    makeBuyersGuideRecord({
+      vin,
+      dealershipId: session.dealership.id,
+      buyersGuideVerifiedAt: stamped,
+      verifiedBy: session.user.id,
+      verifierName: session.user.fullName,
+      updatedAt: stamped,
+    }),
+  );
+  return persistBuyersGuideRecords(records);
 }
 
 export async function renameDealership(session: AuthSession, name: string): Promise<Dealership> {
