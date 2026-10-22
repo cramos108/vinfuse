@@ -8,16 +8,18 @@ import { PrivacyCard } from "@/components/PrivacyPanel";
 import { Button, Card, Field, Select, TextInput } from "@/components/ui";
 import { kindLabel } from "@/components/LocationSwitcher";
 import { ProCheckoutButton } from "@/components/ProCheckoutButton";
+import { BUYERS_GUIDE_INTERVAL_OPTIONS, BUYERS_GUIDE_TOOLTIP, getBuyersGuideInterval } from "@/lib/buyersGuide";
 import { canAddLocation, isDevPro, isManager, isPro, planLabel } from "@/lib/plan";
 import {
   createLocation,
   listLocations,
   renameDealership,
   renameLocation,
+  setBuyersGuideInterval,
   signOut,
   wipeLocalWalkData,
 } from "@/lib/store";
-import type { Location, LocationKind } from "@/lib/types";
+import type { BuyersGuideInterval, Location, LocationKind } from "@/lib/types";
 
 export default function SettingsPage() {
   const session = useRequiredSession();
@@ -31,6 +33,7 @@ export default function SettingsPage() {
   const [editingName, setEditingName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [interval, setInterval] = useState<BuyersGuideInterval>(30);
   const manager = isManager(session.user.role) || isDevPro();
   const pro = isPro(session.dealership);
   const addBlocked = canAddLocation(session.dealership, locations, kind);
@@ -39,6 +42,7 @@ export default function SettingsPage() {
     if (!session.dealership.id) return;
     setLocations(await listLocations(session.dealership.id));
     setName(session.dealership.name);
+    setInterval(getBuyersGuideInterval(session.dealership.id));
   }
 
   useEffect(() => {
@@ -113,6 +117,30 @@ export default function SettingsPage() {
           {pro ? " · unlimited VINs and lots" : " · up to 100 scanned units/VINs per audit"}
           {session.kind === "cloud" ? " · Dealership workspace" : " · This device"}
         </p>
+      </Card>
+
+      <Card className="flex flex-col gap-3">
+        <h2 className="text-xl font-black">Lot inspection interval</h2>
+        <p title={BUYERS_GUIDE_TOOLTIP} className="text-sm font-semibold text-muted sunlight:text-slate-600">
+          {BUYERS_GUIDE_TOOLTIP}
+        </p>
+        <Field label="Re-check cadence" hint="Flags units not physically re-checked within this interval as Inspection Recommended.">
+          <Select
+            value={String(interval)}
+            onChange={(e) => {
+              const next = e.target.value === "walk" ? "walk" : (Number(e.target.value) as 14 | 30);
+              setInterval(next);
+              setBuyersGuideInterval(session.dealership.id, next);
+              setNotice("Lot inspection interval saved on this device.");
+            }}
+          >
+            {BUYERS_GUIDE_INTERVAL_OPTIONS.map((option) => (
+              <option key={String(option.value)} value={String(option.value)}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
       </Card>
 
       {manager ? (

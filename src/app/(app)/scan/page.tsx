@@ -16,10 +16,12 @@ import {
   listScans,
   logScan,
   setActiveLocation,
+  setBuyersGuideTermsChange,
   startAudit,
   verifyBuyersGuidePresent,
 } from "@/lib/store";
-import type { AuditSession, BuyersGuideRecord, Location, Scan, ScanSource } from "@/lib/types";
+import { getBuyersGuideInterval } from "@/lib/buyersGuide";
+import type { AuditSession, BuyersGuideInterval, BuyersGuideRecord, Location, Scan, ScanSource } from "@/lib/types";
 import { formatVin } from "@/lib/vin";
 
 export default function ScanPage() {
@@ -35,6 +37,7 @@ export default function ScanPage() {
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [guide, setGuide] = useState<BuyersGuideRecord | null>(null);
   const [guideBusy, setGuideBusy] = useState(false);
+  const [interval, setInterval] = useState<BuyersGuideInterval>(30);
 
   const location = locations.find((l) => l.id === locationId) ?? locations[0];
 
@@ -42,6 +45,7 @@ export default function ScanPage() {
     if (!session.dealership.id) return;
     const locs = await listLocations(session.dealership.id);
     setLocations(locs);
+    setInterval(getBuyersGuideInterval(session.dealership.id));
     const active = getActiveLocationId(locs);
     if (active) {
       setLocationId(active);
@@ -159,6 +163,8 @@ export default function ScanPage() {
           <div className="mt-4 border-t-2 border-line pt-4 sunlight:border-slate-200">
             <BuyersGuideToggle
               record={guide}
+              interval={interval}
+              walkStartedAt={audit?.startedAt}
               busy={guideBusy}
               compact
               onVerify={() => {
@@ -166,6 +172,16 @@ export default function ScanPage() {
                   setGuideBusy(true);
                   try {
                     setGuide(await verifyBuyersGuidePresent(session, last.vin));
+                  } finally {
+                    setGuideBusy(false);
+                  }
+                })();
+              }}
+              onTermsChange={(required, terms) => {
+                void (async () => {
+                  setGuideBusy(true);
+                  try {
+                    setGuide(await setBuyersGuideTermsChange(session, last.vin, required, terms));
                   } finally {
                     setGuideBusy(false);
                   }

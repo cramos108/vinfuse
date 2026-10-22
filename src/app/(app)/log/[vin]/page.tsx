@@ -7,11 +7,7 @@ import { ChevronLeft } from "lucide-react";
 import { useRequiredSession } from "@/components/AuthProvider";
 import { BuyersGuideToggle } from "@/components/BuyersGuideToggle";
 import { Button, Card } from "@/components/ui";
-import {
-  BUYERS_GUIDE_VALID_MAX_DAYS,
-  BUYERS_GUIDE_WARNING_MAX_DAYS,
-  buyersGuideCycle,
-} from "@/lib/buyersGuide";
+import { BUYERS_GUIDE_TOOLTIP, buyersGuideCycle, getBuyersGuideInterval, intervalLabel } from "@/lib/buyersGuide";
 import {
   getActiveLocationId,
   getBuyersGuide,
@@ -19,10 +15,11 @@ import {
   listInventory,
   listLocations,
   listScans,
+  setBuyersGuideTermsChange,
   startAudit,
   verifyBuyersGuidePresent,
 } from "@/lib/store";
-import type { BuyersGuideRecord, InventoryItem, Scan } from "@/lib/types";
+import type { BuyersGuideInterval, BuyersGuideRecord, BuyersGuideTerms, InventoryItem, Scan } from "@/lib/types";
 import { formatVin, isValidVin, normalizeVin } from "@/lib/vin";
 
 export default function ScannedVehiclePage() {
@@ -35,6 +32,8 @@ export default function ScannedVehiclePage() {
   const [locationName, setLocationName] = useState("Lot");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [interval, setInterval] = useState<BuyersGuideInterval>(30);
+  const [walkStartedAt, setWalkStartedAt] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!session.dealership.id || !isValidVin(vin)) return;
@@ -53,6 +52,8 @@ export default function ScannedVehiclePage() {
     setScan(walkScans.find((row) => row.vin === vin) ?? null);
     setItem(inventory.find((row) => row.vin === vin) ?? null);
     setRecord(guide);
+    setWalkStartedAt(open?.startedAt ?? null);
+    setInterval(getBuyersGuideInterval(session.dealership.id));
   }, [session, vin]);
 
   useEffect(() => {
@@ -66,6 +67,18 @@ export default function ScannedVehiclePage() {
       setRecord(await verifyBuyersGuidePresent(session, vin));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save Buyers Guide verification.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onTermsChange(required: boolean, terms: BuyersGuideTerms | null) {
+    setBusy(true);
+    setError(null);
+    try {
+      setRecord(await setBuyersGuideTermsChange(session, vin, required, terms));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save term change.");
     } finally {
       setBusy(false);
     }
@@ -86,7 +99,7 @@ export default function ScannedVehiclePage() {
   }
 
   const unit = [item?.year, item?.make, item?.model].filter(Boolean).join(" ") || "Scanned unit";
-  const cycle = buyersGuideCycle(record);
+  const cycle = buyersGuideCycle(record, { interval, walkStartedAt });
 
   return (
     <div className="flex flex-col gap-4">
@@ -115,16 +128,22 @@ export default function ScannedVehiclePage() {
       </Card>
 
       <Card>
-        <BuyersGuideToggle record={record} busy={busy} onVerify={() => void verifyPresent()} />
+        <BuyersGuideToggle
+          record={record}
+          interval={interval}
+          walkStartedAt={walkStartedAt}
+          busy={busy}
+          onVerify={() => void verifyPresent()}
+          onTermsChange={(required, terms) => void onTermsChange(required, terms)}
+        />
         {error ? <p className="mt-3 font-bold text-alert">{error}</p> : null}
       </Card>
 
       <Card className="p-4">
-        <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Compliance window</p>
-        <p className="mt-1 text-sm font-semibold text-muted sunlight:text-slate-600">
-          Green (valid) {`0–${BUYERS_GUIDE_VALID_MAX_DAYS}`} days · Amber (warning){" "}
-          {`${BUYERS_GUIDE_VALID_MAX_DAYS + 1}–${BUYERS_GUIDE_WARNING_MAX_DAYS}`} days · Red (expired){" "}
-          {BUYERS_GUIDE_WARNING_MAX_DAYS + 1}+ days or unverified. This unit is currently{" "}
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Lot inspection cadence</p>
+        <p title={BUYERS_GUIDE_TOOLTIP} className="mt-1 text-sm font-semibold text-muted sunlight:text-slate-600">
+          Dealership interval: {intervalLabel(interval)}. This is an accuracy audit on the walk — not a statutory
+          expiration. This unit is currently{" "}
           <span className="text-white sunlight:text-ink">{cycle.label}</span>.
         </p>
       </Card>

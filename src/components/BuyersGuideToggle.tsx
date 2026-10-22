@@ -172,8 +172,9 @@ export function BuyersGuideToggle({
               disabled={busy}
               aria-label="Posted Buyers Guide terms"
               onChange={(event) => {
-                const next = event.target.value as BuyersGuideTerms | "";
-                onTermsChange(cycle.termsChangeRequired || Boolean(next), next || null);
+                const next = (event.target.value || null) as BuyersGuideTerms | null;
+                const switched = Boolean(terms && next && next !== terms);
+                onTermsChange(switched || cycle.termsChangeRequired, next);
               }}
             >
               <option value="">Posted terms</option>

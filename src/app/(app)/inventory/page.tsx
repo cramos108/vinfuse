@@ -51,7 +51,8 @@ export default function InventoryPage() {
 
   async function load() {
     if (!session.dealership.id) return;
-    setLocations(await listLocations(session.dealership.id));
+    const locs = await listLocations(session.dealership.id);
+    setLocations(locs);
     const [inventory, records] = await Promise.all([
       listInventory(session.dealership.id),
       listBuyersGuide(session.dealership.id),
@@ -208,22 +209,23 @@ export default function InventoryPage() {
 
       {items.length > 0 ? (
         <div className="flex flex-col gap-3">
-          <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Buyers Guide Audit</p>
+          <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Lot inspection & accuracy</p>
+          <BuyersGuideHint />
           <div className="grid grid-cols-2 gap-2">
             <Stat label="Total Lot Units" value={counts.total} />
-            <Stat label="Compliant" value={counts.valid} tone="ok" />
-            <Stat label="Re-check Due" value={counts.warning} tone="warn" />
-            <Stat label="Non-Compliant" value={counts.expired} tone="alert" />
+            <Stat label="Verified Present" value={counts.present} tone="ok" />
+            <Stat label="Inspection Recommended" value={counts.recommended} tone="warn" />
+            <Stat label="Terms reprint" value={counts.terms} tone="alert" />
           </div>
           <div className="flex flex-col gap-2">
             {AUDIT_FILTERS.map((chip) => {
               const count =
-                chip.id === "valid"
-                  ? counts.valid
-                  : chip.id === "warning"
-                    ? counts.warning
-                    : chip.id === "expired"
-                      ? counts.expired
+                chip.id === "present"
+                  ? counts.present
+                  : chip.id === "recommended"
+                    ? counts.recommended
+                    : chip.id === "terms"
+                      ? counts.terms
                       : counts.total;
               const active = filter === chip.id;
               return (
@@ -254,7 +256,8 @@ export default function InventoryPage() {
       </p>
       <ul className="flex flex-col gap-2">
         {visible.map((item) => {
-          const status = buyersGuideStatus(guideByVin.get(item.vin) ?? null);
+          const record = guideByVin.get(item.vin) ?? null;
+          const status = buyersGuideStatus(record, ctx);
           return (
             <li key={item.id}>
               <Card className="flex flex-col gap-3 p-4">
@@ -267,7 +270,7 @@ export default function InventoryPage() {
                   <p className="text-sm font-semibold text-muted">
                     Should be at: {item.expectedLocationName || "No lot on file"} {item.color ? `· ${item.color}` : ""}
                   </p>
-                  <BuyersGuideBadge status={status} />
+                  <BuyersGuideBadge status={status} termsChangeRequired={Boolean(record?.termsChangeRequired)} />
                 </div>
                 <BuyersGuideVerifyButton
                   busy={verifyVin === item.vin || verifyVin === "*"}
