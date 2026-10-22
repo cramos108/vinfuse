@@ -1,31 +1,86 @@
 import { downloadTextFile } from "./auditReport";
-import type { BuyersGuideFilter, BuyersGuideRecord, BuyersGuideStatus, Scan } from "./types";
+import type {
+  BuyersGuideFilter,
+  BuyersGuideInterval,
+  BuyersGuideRecord,
+  BuyersGuideStatus,
+  BuyersGuideTerms,
+  Scan,
+} from "./types";
 import { formatVin, normalizeVin } from "./vin";
 
-/** Green ("valid"): 0–29 days since buyersGuideVerifiedAt. */
-export const BUYERS_GUIDE_VALID_MAX_DAYS = 29;
-/** Amber ("warning"): 30–45 days. Re-check on the next lot walk. */
-export const BUYERS_GUIDE_WARNING_MAX_DAYS = 45;
 export const BUYERS_GUIDE_KEY = "vinfuse.buyersGuide.v1";
+export const BUYERS_GUIDE_SETTINGS_KEY = "vinfuse.buyersGuide.settings.v1";
+export const BUYERS_GUIDE_DEFAULT_INTERVAL: BuyersGuideInterval = 30;
+
+export const BUYERS_GUIDE_TOOLTIP =
+  "FTC rules require an accurate Buyers Guide on every displayed vehicle at all times. Use periodic lot walks to verify stickers are present, undamaged, and matching current terms.";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const BUYERS_GUIDE_STATUS_LABEL: Record<BuyersGuideStatus, string> = {
-  valid: "Compliant",
-  warning: "Re-check Due",
-  expired: "Non-Compliant / Missing",
+  present: "Verified Present",
+  recommended: "Inspection Recommended",
 };
 
-export const BUYERS_GUIDE_STATUS_TONE: Record<BuyersGuideStatus, "ok" | "warn" | "alert"> = {
-  valid: "ok",
-  warning: "warn",
-  expired: "alert",
+export const BUYERS_GUIDE_TERMS_LABEL: Record<BuyersGuideTerms, string> = {
+  as_is: "As-Is",
+  dealer_warranty: "Dealer Warranty",
+};
+
+export const BUYERS_GUIDE_INTERVAL_OPTIONS: Array<{ value: BuyersGuideInterval; label: string }> = [
+  { value: "walk", label: "Every lot walk" },
+  { value: 14, label: "Every 14 days" },
+  { value: 30, label: "Every 30 days" },
+];
+
+export type BuyersGuideContext = {
+  interval: BuyersGuideInterval;
+  walkStartedAt?: string | null;
+  at?: number;
 };
 
 type LegacyRecord = Partial<BuyersGuideRecord> & {
   lastVerifiedAt?: string | null;
   verified?: boolean;
+  buyersGuideStatus?: string;
 };
+
+type SettingsFile = Record<string, { interval?: BuyersGuideInterval }>;
+
+export function parseBuyersGuideInterval(value: string | number | null | undefined): BuyersGuideInterval {
+  if (value === "walk" || value === 14 || value === 30) return value;
+  if (value === "14") return 14;
+  if (value === "30") return 30;
+  return BUYERS_GUIDE_DEFAULT_INTERVAL;
+}
+
+export function intervalLabel(interval: BuyersGuideInterval): string {
+  return BUYERS_GUIDE_INTERVAL_OPTIONS.find((row) => row.value === interval)?.label ?? "Every 30 days";
+}
+
+function loadSettingsFile(): SettingsFile {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(BUYERS_GUIDE_SETTINGS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as SettingsFile;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function getBuyersGuideInterval(dealershipId: string): BuyersGuideInterval {
+  if (!dealershipId) return BUYERS_GUIDE_DEFAULT_INTERVAL;
+  return parseBuyersGuideInterval(loadSettingsFile()[dealershipId]?.interval);
+}
+
+export function setBuyersGuideIntervalLocal(dealershipId: string, interval: BuyersGuideInterval) {
+  const file = loadSettingsFile();
+  file[dealershipId] = { interval };
+  localStorage.setItem(BUYERS_GUIDE_SETTINGS_KEY, JSON.stringify(file));
+}
 
 export function buyersGuideDaysElapsed(verifiedAt: string | null | undefined, at = Date.now()): number | null {
   if (!verifiedAt) return null;
@@ -36,34 +91,27 @@ export function buyersGuideDaysElapsed(verifiedAt: string | null | undefined, at
 
 export function buyersGuideStatusFromAt(
   verifiedAt: string | null | undefined,
-  at = Date.now(),
+  ctx: BuyersGuideContext,
 ): BuyersGuideStatus {
-  const days = buyersGuideDaysElapsed(verifiedAt, at);
-  if (days === null) return "expired";
-  if (days <= BUYERS_GUIDE_VALID_MAX_DAYS) return "valid";
-  if (days <= BUYERS_GUIDE_WARNING_MAX_DAYS) return "warning";
-  return "expired";
+  const at = ctx.at ?? Date.now();
+  if (!verifiedAt) return "recommended";
+  const verifiedMs = new Date(verifiedAt).getTime();
+  if (!Number.isFinite(verifiedMs)) return "recommended";
+  if (ctx.interval === "walk") {
+    if (!ctx.walkStartedAt) return "present";
+    const walkMs = new Date(ctx.walkStartedAt).getTime();
+    if (!Number.isFinite(walkMs)) return "present";
+    return verifiedMs >= walkMs ? "present" : "recommended";
+  }
+  const days = Math.floor(Math.max(0, at - verifiedMs) / DAY_MS);
+  return days < ctx.interval ? "present" : "recommended";
 }
 
 export function buyersGuideStatus(
   record: BuyersGuideRecord | null | undefined,
-  at = Date.now(),
+  ctx: BuyersGuideContext,
 ): BuyersGuideStatus {
-  return buyersGuideStatusFromAt(record?.buyersGuideVerifiedAt, at);
-}
-
-export function buyersGuideWarningAt(verifiedAt: string | null | undefined): string | null {
-  if (!verifiedAt) return null;
-  const t = new Date(verifiedAt).getTime();
-  if (!Number.isFinite(t)) return null;
-  return new Date(t + (BUYERS_GUIDE_VALID_MAX_DAYS + 1) * DAY_MS).toISOString();
-}
-
-export function buyersGuideExpiredAt(verifiedAt: string | null | undefined): string | null {
-  if (!verifiedAt) return null;
-  const t = new Date(verifiedAt).getTime();
-  if (!Number.isFinite(t)) return null;
-  return new Date(t + (BUYERS_GUIDE_WARNING_MAX_DAYS + 1) * DAY_MS).toISOString();
+  return buyersGuideStatusFromAt(record?.buyersGuideVerifiedAt, ctx);
 }
 
 export function formatBuyersGuideWhen(iso: string | null | undefined): string {
@@ -78,26 +126,34 @@ export type BuyersGuideCycle = {
   label: string;
   buyersGuideVerifiedAt: string | null;
   daysElapsed: number | null;
-  warningAt: string | null;
-  expiredAt: string | null;
+  termsChangeRequired: boolean;
+  terms: BuyersGuideTerms | null;
 };
 
-export function buyersGuideCycle(record: BuyersGuideRecord | null | undefined, at = Date.now()): BuyersGuideCycle {
+export function buyersGuideCycle(
+  record: BuyersGuideRecord | null | undefined,
+  ctx: BuyersGuideContext,
+): BuyersGuideCycle {
   const buyersGuideVerifiedAt = record?.buyersGuideVerifiedAt ?? null;
-  const status = buyersGuideStatusFromAt(buyersGuideVerifiedAt, at);
+  const status = buyersGuideStatusFromAt(buyersGuideVerifiedAt, ctx);
   return {
     status,
     label: BUYERS_GUIDE_STATUS_LABEL[status],
     buyersGuideVerifiedAt,
-    daysElapsed: buyersGuideDaysElapsed(buyersGuideVerifiedAt, at),
-    warningAt: buyersGuideWarningAt(buyersGuideVerifiedAt),
-    expiredAt: buyersGuideExpiredAt(buyersGuideVerifiedAt),
+    daysElapsed: buyersGuideDaysElapsed(buyersGuideVerifiedAt, ctx.at),
+    termsChangeRequired: Boolean(record?.termsChangeRequired),
+    terms: record?.terms ?? null,
   };
 }
 
-export function matchesBuyersGuideFilter(status: BuyersGuideStatus, filter: BuyersGuideFilter): boolean {
+export function matchesBuyersGuideFilter(
+  record: BuyersGuideRecord | null | undefined,
+  filter: BuyersGuideFilter,
+  ctx: BuyersGuideContext,
+): boolean {
   if (filter === "all") return true;
-  return status === filter;
+  if (filter === "terms") return Boolean(record?.termsChangeRequired);
+  return buyersGuideStatus(record, ctx) === filter;
 }
 
 export function makeBuyersGuideRecord(input: {
@@ -107,36 +163,47 @@ export function makeBuyersGuideRecord(input: {
   verifiedBy: string | null;
   verifierName: string | null;
   updatedAt: string;
-  at?: number;
+  terms?: BuyersGuideTerms | null;
+  termsChangeRequired?: boolean;
+  termsChangedAt?: string | null;
+  ctx?: BuyersGuideContext;
 }): BuyersGuideRecord {
   const vin = normalizeVin(input.vin);
   const buyersGuideVerifiedAt = input.buyersGuideVerifiedAt;
+  const ctx = input.ctx ?? { interval: BUYERS_GUIDE_DEFAULT_INTERVAL };
   return {
     vin,
     dealershipId: input.dealershipId,
     buyersGuideVerifiedAt,
-    buyersGuideStatus: buyersGuideStatusFromAt(buyersGuideVerifiedAt, input.at),
+    buyersGuideStatus: buyersGuideStatusFromAt(buyersGuideVerifiedAt, ctx),
     verifiedBy: input.verifiedBy,
     verifierName: input.verifierName,
+    terms: input.terms ?? null,
+    termsChangeRequired: Boolean(input.termsChangeRequired),
+    termsChangedAt: input.termsChangedAt ?? null,
     updatedAt: input.updatedAt,
   };
 }
 
-export function coerceBuyersGuideRecord(raw: LegacyRecord, at = Date.now()): BuyersGuideRecord | null {
+export function coerceBuyersGuideRecord(raw: LegacyRecord, ctx?: BuyersGuideContext): BuyersGuideRecord | null {
   const vin = normalizeVin(raw.vin ?? "");
   const dealershipId = raw.dealershipId ?? "";
   if (!vin || !dealershipId) return null;
   const stamped =
     raw.buyersGuideVerifiedAt ??
     (raw.verified === false ? null : (raw.lastVerifiedAt ?? null));
+  const terms = raw.terms === "as_is" || raw.terms === "dealer_warranty" ? raw.terms : null;
   return makeBuyersGuideRecord({
     vin,
     dealershipId,
     buyersGuideVerifiedAt: stamped,
     verifiedBy: raw.verifiedBy ?? null,
     verifierName: raw.verifierName ?? null,
-    updatedAt: raw.updatedAt ?? stamped ?? new Date(at).toISOString(),
-    at,
+    updatedAt: raw.updatedAt ?? stamped ?? new Date().toISOString(),
+    terms,
+    termsChangeRequired: Boolean(raw.termsChangeRequired),
+    termsChangedAt: raw.termsChangedAt ?? null,
+    ctx,
   });
 }
 
@@ -168,10 +235,6 @@ export function getBuyersGuideLocal(dealershipId: string, vin: string): BuyersGu
   return listBuyersGuideLocal(dealershipId).find((row) => row.vin === key) ?? null;
 }
 
-export function upsertBuyersGuideLocal(record: BuyersGuideRecord): BuyersGuideRecord {
-  return upsertBuyersGuideLocalMany([record])[0];
-}
-
 export function upsertBuyersGuideLocalMany(records: BuyersGuideRecord[]): BuyersGuideRecord[] {
   const incoming = new Map(records.map((row) => [`${row.dealershipId}:${normalizeVin(row.vin)}`, row]));
   const rows = loadAllLocal().filter((row) => !incoming.has(`${row.dealershipId}:${row.vin}`));
@@ -180,26 +243,41 @@ export function upsertBuyersGuideLocalMany(records: BuyersGuideRecord[]): Buyers
   return next;
 }
 
+export function mergeBuyersGuideRecords(
+  timestampSource: BuyersGuideRecord,
+  termsSource: BuyersGuideRecord | null | undefined,
+): BuyersGuideRecord {
+  if (!termsSource) return timestampSource;
+  return {
+    ...timestampSource,
+    terms: termsSource.terms ?? timestampSource.terms,
+    termsChangeRequired: termsSource.termsChangeRequired,
+    termsChangedAt: termsSource.termsChangedAt ?? timestampSource.termsChangedAt,
+  };
+}
+
 export type BuyersGuideCounts = {
   total: number;
-  valid: number;
-  warning: number;
-  expired: number;
+  present: number;
+  recommended: number;
+  terms: number;
 };
 
 export function buyersGuideCounts(
   vins: string[],
   records: BuyersGuideRecord[],
-  at = Date.now(),
+  ctx: BuyersGuideContext,
 ): BuyersGuideCounts {
   const byVin = new Map(records.map((row) => [row.vin, row]));
   const seen = new Set<string>();
-  const counts: BuyersGuideCounts = { total: 0, valid: 0, warning: 0, expired: 0 };
+  const counts: BuyersGuideCounts = { total: 0, present: 0, recommended: 0, terms: 0 };
   for (const vin of vins) {
     if (seen.has(vin)) continue;
     seen.add(vin);
+    const record = byVin.get(vin) ?? null;
     counts.total += 1;
-    counts[buyersGuideStatus(byVin.get(vin) ?? null, at)] += 1;
+    counts[buyersGuideStatus(record, ctx)] += 1;
+    if (record?.termsChangeRequired) counts.terms += 1;
   }
   return counts;
 }
@@ -214,6 +292,8 @@ export type BuyersGuideExportRow = {
   verifiedBy: string;
   scannedAt: string | null;
   scannerName: string;
+  termsChangeRequired: boolean;
+  terms: BuyersGuideTerms | null;
 };
 
 export type BuyersGuideExportMeta = {
@@ -221,12 +301,14 @@ export type BuyersGuideExportMeta = {
   locationName: string;
   generatedBy: string;
   generatedAt: string;
+  interval: BuyersGuideInterval;
+  walkStartedAt?: string | null;
 };
 
 export function buildBuyersGuideExportRows(
   scans: Scan[],
   records: BuyersGuideRecord[],
-  at = Date.now(),
+  ctx: BuyersGuideContext,
 ): BuyersGuideExportRow[] {
   const byVin = new Map(records.map((row) => [row.vin, row]));
   const seen = new Set<string>();
@@ -235,7 +317,7 @@ export function buildBuyersGuideExportRows(
     if (seen.has(scan.vin)) continue;
     seen.add(scan.vin);
     const record = byVin.get(scan.vin) ?? null;
-    const cycle = buyersGuideCycle(record, at);
+    const cycle = buyersGuideCycle(record, ctx);
     rows.push({
       vin: scan.vin,
       status: cycle.status,
@@ -246,6 +328,8 @@ export function buildBuyersGuideExportRows(
       verifiedBy: record?.verifierName ?? "",
       scannedAt: scan.scannedAt,
       scannerName: scan.scannerName,
+      termsChangeRequired: cycle.termsChangeRequired,
+      terms: cycle.terms,
     });
   }
   return rows.sort((a, b) => a.vin.localeCompare(b.vin));
@@ -264,16 +348,17 @@ export function buyersGuideExportStem(meta: BuyersGuideExportMeta): string {
 
 export function buildWalkReportCsv(meta: BuyersGuideExportMeta, rows: BuyersGuideExportRow[]): string {
   const header = [
-    "VinFuse Walk Report · FTC Buyers Guide",
+    "VinFuse Walk Report · Lot Inspection & Accuracy Audit",
     `Dealership,${csvCell(meta.dealershipName)}`,
     `Location,${csvCell(meta.locationName)}`,
     `Prepared by,${csvCell(meta.generatedBy)}`,
     `Generated,${csvCell(new Date(meta.generatedAt).toLocaleString())}`,
-    "Status window,valid 0-29 days; warning 30-45 days; expired 46+ days or unverified",
+    `Inspection interval,${csvCell(intervalLabel(meta.interval))}`,
+    csvCell(BUYERS_GUIDE_TOOLTIP),
     `Vehicles,${rows.length}`,
-    `Compliant (Green),${rows.filter((r) => r.status === "valid").length}`,
-    `Re-check Due (Amber),${rows.filter((r) => r.status === "warning").length}`,
-    `Non-Compliant / Missing (Red),${rows.filter((r) => r.status === "expired").length}`,
+    `Verified Present,${rows.filter((r) => r.status === "present").length}`,
+    `Inspection Recommended,${rows.filter((r) => r.status === "recommended").length}`,
+    `Terms reprint required,${rows.filter((r) => r.termsChangeRequired).length}`,
     "",
     [
       "VIN",
@@ -282,8 +367,10 @@ export function buildWalkReportCsv(meta: BuyersGuideExportMeta, rows: BuyersGuid
       "Buyers Guide status",
       "buyersGuideVerifiedAt (ISO)",
       "Buyers Guide verified at",
-      "Days elapsed",
+      "Days since last check",
       "Verified by",
+      "Terms reprint required",
+      "Posted terms",
     ].join(","),
   ];
   const body = rows.map((row) =>
@@ -296,6 +383,8 @@ export function buildWalkReportCsv(meta: BuyersGuideExportMeta, rows: BuyersGuid
       row.buyersGuideVerifiedAt ? row.buyersGuideVerifiedAtLocal : "",
       row.daysElapsed === null ? "" : String(row.daysElapsed),
       row.verifiedBy,
+      row.termsChangeRequired ? "Yes" : "No",
+      row.terms ? BUYERS_GUIDE_TERMS_LABEL[row.terms] : "",
     ]
       .map(csvCell)
       .join(","),
@@ -303,28 +392,21 @@ export function buildWalkReportCsv(meta: BuyersGuideExportMeta, rows: BuyersGuid
   return [...header, ...body, ""].join("\n");
 }
 
-export function buildBuyersGuideCsv(meta: BuyersGuideExportMeta, rows: BuyersGuideExportRow[]): string {
-  return buildWalkReportCsv(meta, rows);
-}
-
 export function buildBuyersGuideJson(meta: BuyersGuideExportMeta, rows: BuyersGuideExportRow[]): string {
   return `${JSON.stringify(
     {
-      title: "VinFuse Walk Report · FTC Buyers Guide",
+      title: "VinFuse Walk Report · Lot Inspection & Accuracy Audit",
       dealership: meta.dealershipName,
       location: meta.locationName,
       generatedBy: meta.generatedBy,
       generatedAt: meta.generatedAt,
-      windows: {
-        valid: "0-29 days",
-        warning: "30-45 days",
-        expired: "46+ days or unverified",
-      },
+      inspectionInterval: intervalLabel(meta.interval),
+      note: BUYERS_GUIDE_TOOLTIP,
       counts: {
         vehicles: rows.length,
-        valid: rows.filter((r) => r.status === "valid").length,
-        warning: rows.filter((r) => r.status === "warning").length,
-        expired: rows.filter((r) => r.status === "expired").length,
+        present: rows.filter((r) => r.status === "present").length,
+        recommended: rows.filter((r) => r.status === "recommended").length,
+        termsReprint: rows.filter((r) => r.termsChangeRequired).length,
       },
       vehicles: rows.map((row) => ({
         vin: row.vin,
@@ -335,6 +417,8 @@ export function buildBuyersGuideJson(meta: BuyersGuideExportMeta, rows: BuyersGu
         verifiedBy: row.verifiedBy || null,
         scannedAt: row.scannedAt,
         scannerName: row.scannerName,
+        termsChangeRequired: row.termsChangeRequired,
+        terms: row.terms,
       })),
     },
     null,
@@ -348,7 +432,10 @@ export function downloadBuyersGuideSummary(
   records: BuyersGuideRecord[],
   format: "csv" | "json",
 ) {
-  const rows = buildBuyersGuideExportRows(scans, records);
+  const rows = buildBuyersGuideExportRows(scans, records, {
+    interval: meta.interval,
+    walkStartedAt: meta.walkStartedAt,
+  });
   const stem = buyersGuideExportStem(meta);
   if (format === "json") {
     downloadTextFile(`${stem}.json`, buildBuyersGuideJson(meta, rows), "application/json;charset=utf-8");
@@ -360,12 +447,13 @@ export function downloadBuyersGuideSummary(
 export function attachBuyersGuideToScan(
   scan: Scan,
   record: BuyersGuideRecord | null,
-  at = Date.now(),
+  ctx: BuyersGuideContext,
 ): Scan {
-  const cycle = buyersGuideCycle(record, at);
+  const cycle = buyersGuideCycle(record, ctx);
   return {
     ...scan,
     buyersGuideVerifiedAt: cycle.buyersGuideVerifiedAt,
     buyersGuideStatus: cycle.status,
+    termsChangeRequired: cycle.termsChangeRequired,
   };
 }

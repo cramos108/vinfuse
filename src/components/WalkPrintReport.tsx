@@ -41,8 +41,8 @@ export function WalkPrintReport({
               <th className="py-1.5 pr-2 font-extrabold">VIN</th>
               <th className="py-1.5 pr-2 font-extrabold">Time</th>
               <th className="py-1.5 pr-2 font-extrabold">Scanner</th>
-              <th className="py-1.5 pr-2 font-extrabold">Buyers Guide</th>
-              <th className="py-1.5 font-extrabold">Verified at</th>
+              <th className="py-1.5 pr-2 font-extrabold">Lot inspection</th>
+              <th className="py-1.5 font-extrabold">Last checked</th>
             </tr>
           </thead>
           <tbody>
@@ -56,11 +56,8 @@ export function WalkPrintReport({
                   {row.source === "barcode" ? " · barcode" : row.source === "manual" ? " · typed" : ""}
                 </td>
                 <td className="py-1.5 pr-2 font-bold">
-                  {row.buyersGuideStatus === "valid"
-                    ? "Compliant"
-                    : row.buyersGuideStatus === "warning"
-                      ? "Re-check Due"
-                      : "Non-Compliant / Missing"}
+                  {row.buyersGuideStatus === "present" ? "Verified Present" : "Inspection Recommended"}
+                  {row.termsChangeRequired ? " · reprint required" : ""}
                 </td>
                 <td className="py-1.5">
                   {row.buyersGuideVerifiedAt ? new Date(row.buyersGuideVerifiedAt).toLocaleString() : "Never"}

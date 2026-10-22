@@ -6,15 +6,20 @@ import { canAddLocation, canImportCsv, canInviteTeam, isPro, uniqueVinCount, vin
 import { reconcileInventory } from "./reconcile";
 import { getSupabase, supabaseConfigured } from "./supabase";
 import {
+  getBuyersGuideInterval,
   getBuyersGuideLocal,
   listBuyersGuideLocal,
   makeBuyersGuideRecord,
+  mergeBuyersGuideRecords,
+  setBuyersGuideIntervalLocal,
   upsertBuyersGuideLocalMany,
 } from "./buyersGuide";
 import type {
   AuditSession,
   AuthSession,
+  BuyersGuideInterval,
   BuyersGuideRecord,
+  BuyersGuideTerms,
   Dealership,
   InventoryItem,
   Invite,
@@ -1134,20 +1139,30 @@ function isMissingBuyersGuideTable(error: { code?: string; message?: string } | 
 }
 
 export async function listBuyersGuide(dealershipId: string): Promise<BuyersGuideRecord[]> {
+  const local = listBuyersGuideLocal(dealershipId);
+  const localByVin = new Map(local.map((row) => [row.vin, row]));
   const sb = await cloudClient();
   if (sb) {
     const { data, error } = await sb
       .from("buyers_guide_verifications")
       .select("vin, dealership_id, verified, last_verified_at, verified_by, verifier_name, updated_at")
       .eq("dealership_id", dealershipId);
-    if (!error) return (data ?? []).map(mapBuyersGuideRow);
+    if (!error) {
+      const cloud = (data ?? []).map(mapBuyersGuideRow);
+      const seen = new Set(cloud.map((row) => row.vin));
+      return [
+        ...cloud.map((row) => mergeBuyersGuideRecords(row, localByVin.get(row.vin))),
+        ...local.filter((row) => !seen.has(row.vin)),
+      ];
+    }
     if (!isMissingBuyersGuideTable(error)) throw new Error(error.message);
   }
-  return listBuyersGuideLocal(dealershipId);
+  return local;
 }
 
 export async function getBuyersGuide(dealershipId: string, vin: string): Promise<BuyersGuideRecord | null> {
   const key = normalizeVin(vin);
+  const local = getBuyersGuideLocal(dealershipId, key);
   const sb = await cloudClient();
   if (sb) {
     const { data, error } = await sb
@@ -1156,10 +1171,13 @@ export async function getBuyersGuide(dealershipId: string, vin: string): Promise
       .eq("dealership_id", dealershipId)
       .eq("vin", key)
       .maybeSingle();
-    if (!error) return data ? mapBuyersGuideRow(data) : null;
+    if (!error) {
+      if (!data) return local;
+      return mergeBuyersGuideRecords(mapBuyersGuideRow(data), local);
+    }
     if (!isMissingBuyersGuideTable(error)) throw new Error(error.message);
   }
-  return getBuyersGuideLocal(dealershipId, key);
+  return local;
 }
 
 async function persistBuyersGuideRecords(
@@ -1184,7 +1202,8 @@ async function persistBuyersGuideRecords(
       )
       .select("vin, dealership_id, verified, last_verified_at, verified_by, verifier_name, updated_at");
     if (!error && data) {
-      const mapped = data.map(mapBuyersGuideRow);
+      const byVin = new Map(records.map((row) => [row.vin, row]));
+      const mapped = data.map((row) => mergeBuyersGuideRecords(mapBuyersGuideRow(row), byVin.get(row.vin)));
       upsertBuyersGuideLocalMany(mapped);
       emit();
       return mapped;
@@ -1203,14 +1222,19 @@ export async function setBuyersGuideVerified(
 ): Promise<BuyersGuideRecord> {
   const key = normalizeVin(vin);
   if (!isValidVin(key)) throw new Error("Need a valid 17-character VIN (no I, O, or Q).");
+  const previous = await getBuyersGuide(session.dealership.id, key);
   const stamped = now();
   const record = makeBuyersGuideRecord({
     vin: key,
     dealershipId: session.dealership.id,
     buyersGuideVerifiedAt: verified ? stamped : null,
-    verifiedBy: verified ? session.user.id : null,
-    verifierName: verified ? session.user.fullName : null,
+    verifiedBy: verified ? session.user.id : previous?.verifiedBy ?? null,
+    verifierName: verified ? session.user.fullName : previous?.verifierName ?? null,
     updatedAt: stamped,
+    terms: previous?.terms ?? null,
+    termsChangeRequired: verified ? false : Boolean(previous?.termsChangeRequired),
+    termsChangedAt: previous?.termsChangedAt ?? null,
+    ctx: { interval: getBuyersGuideInterval(session.dealership.id) },
   });
   const saved = await persistBuyersGuideRecords([record]);
   return saved[0] ?? record;
@@ -1223,17 +1247,56 @@ export async function verifyBuyersGuidePresent(session: AuthSession, vin: string
 export async function verifyBuyersGuideBatch(session: AuthSession, vins: string[]): Promise<BuyersGuideRecord[]> {
   const stamped = now();
   const unique = [...new Set(vins.map(normalizeVin).filter(isValidVin))];
-  const records = unique.map((vin) =>
-    makeBuyersGuideRecord({
+  const existing = await listBuyersGuide(session.dealership.id);
+  const byVin = new Map(existing.map((row) => [row.vin, row]));
+  const interval = getBuyersGuideInterval(session.dealership.id);
+  const records = unique.map((vin) => {
+    const previous = byVin.get(vin);
+    return makeBuyersGuideRecord({
       vin,
       dealershipId: session.dealership.id,
       buyersGuideVerifiedAt: stamped,
       verifiedBy: session.user.id,
       verifierName: session.user.fullName,
       updatedAt: stamped,
-    }),
-  );
+      terms: previous?.terms ?? null,
+      termsChangeRequired: false,
+      termsChangedAt: previous?.termsChangedAt ?? null,
+      ctx: { interval },
+    });
+  });
   return persistBuyersGuideRecords(records);
+}
+
+export async function setBuyersGuideTermsChange(
+  session: AuthSession,
+  vin: string,
+  required: boolean,
+  terms?: BuyersGuideTerms | null,
+): Promise<BuyersGuideRecord> {
+  const key = normalizeVin(vin);
+  if (!isValidVin(key)) throw new Error("Need a valid 17-character VIN (no I, O, or Q).");
+  const previous = await getBuyersGuide(session.dealership.id, key);
+  const stamped = now();
+  const record = makeBuyersGuideRecord({
+    vin: key,
+    dealershipId: session.dealership.id,
+    buyersGuideVerifiedAt: previous?.buyersGuideVerifiedAt ?? null,
+    verifiedBy: previous?.verifiedBy ?? null,
+    verifierName: previous?.verifierName ?? null,
+    updatedAt: stamped,
+    terms: terms === undefined ? previous?.terms ?? null : terms,
+    termsChangeRequired: required,
+    termsChangedAt: required ? stamped : previous?.termsChangedAt ?? null,
+    ctx: { interval: getBuyersGuideInterval(session.dealership.id) },
+  });
+  const saved = await persistBuyersGuideRecords([record]);
+  return saved[0] ?? record;
+}
+
+export function setBuyersGuideInterval(dealershipId: string, interval: BuyersGuideInterval) {
+  setBuyersGuideIntervalLocal(dealershipId, interval);
+  emit();
 }
 
 export async function renameDealership(session: AuthSession, name: string): Promise<Dealership> {

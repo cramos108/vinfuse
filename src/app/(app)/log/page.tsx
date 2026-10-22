@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { FileDown, History, Printer, Share2, Trash2 } from "lucide-react";
 import { useRequiredSession } from "@/components/AuthProvider";
-import { BuyersGuideBadge, BuyersGuideVerifyButton } from "@/components/BuyersGuideToggle";
+import { BuyersGuideBadge, BuyersGuideHint, BuyersGuideVerifyButton } from "@/components/BuyersGuideToggle";
 import { WalkPrintReport } from "@/components/WalkPrintReport";
 import { Button, Card, Stat } from "@/components/ui";
 import {
@@ -13,6 +13,7 @@ import {
   buyersGuideCounts,
   buyersGuideStatus,
   downloadBuyersGuideSummary,
+  getBuyersGuideInterval,
   matchesBuyersGuideFilter,
 } from "@/lib/buyersGuide";
 import { isManager } from "@/lib/plan";
@@ -26,19 +27,20 @@ import {
   listScans,
   startAudit,
   subscribeStore,
+  setBuyersGuideTermsChange,
   verifyBuyersGuideBatch,
   verifyBuyersGuidePresent,
 } from "@/lib/store";
 import { TERMS } from "@/lib/terms";
-import type { BuyersGuideFilter, BuyersGuideRecord, Scan } from "@/lib/types";
+import type { BuyersGuideFilter, BuyersGuideInterval, BuyersGuideRecord, Scan } from "@/lib/types";
 import { archiveClosedWalk, printWalkReport, shareWalkText, walkShareText } from "@/lib/walkHistory";
 import { formatVin } from "@/lib/vin";
 
 const LOT_FILTERS: Array<{ id: BuyersGuideFilter; label: string }> = [
-  { id: "all", label: "Buyers Guide Audit" },
-  { id: "valid", label: BUYERS_GUIDE_STATUS_LABEL.valid },
-  { id: "warning", label: BUYERS_GUIDE_STATUS_LABEL.warning },
-  { id: "expired", label: BUYERS_GUIDE_STATUS_LABEL.expired },
+  { id: "all", label: "Lot inspection" },
+  { id: "present", label: BUYERS_GUIDE_STATUS_LABEL.present },
+  { id: "recommended", label: BUYERS_GUIDE_STATUS_LABEL.recommended },
+  { id: "terms", label: "Terms reprint" },
 ];
 
 export default function LogPage() {
@@ -51,6 +53,7 @@ export default function LogPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [filter, setFilter] = useState<BuyersGuideFilter>("all");
   const [verifyVin, setVerifyVin] = useState<string | null>(null);
+  const [interval, setInterval] = useState<BuyersGuideInterval>(30);
 
   async function load() {
     if (!session.dealership.id) return;
@@ -68,6 +71,7 @@ export default function LogPage() {
     ]);
     setScans(walkScans);
     setGuides(records);
+    setInterval(getBuyersGuideInterval(session.dealership.id));
   }
 
   useEffect(() => {
@@ -78,16 +82,20 @@ export default function LogPage() {
   }, [session.dealership.id]);
 
   const guideByVin = useMemo(() => new Map(guides.map((row) => [row.vin, row])), [guides]);
+  const ctx = useMemo(
+    () => ({ interval, walkStartedAt: startedAt }),
+    [interval, startedAt],
+  );
   const counts = useMemo(
-    () => buyersGuideCounts(scans.map((scan) => scan.vin), guides),
-    [scans, guides],
+    () => buyersGuideCounts(scans.map((scan) => scan.vin), guides, ctx),
+    [scans, guides, ctx],
   );
   const visible = scans.filter((scan) =>
-    matchesBuyersGuideFilter(buyersGuideStatus(guideByVin.get(scan.vin) ?? null), filter),
+    matchesBuyersGuideFilter(guideByVin.get(scan.vin) ?? null, filter, ctx),
   );
   const annotated = useMemo(
-    () => scans.map((scan) => attachBuyersGuideToScan(scan, guideByVin.get(scan.vin) ?? null)),
-    [scans, guideByVin],
+    () => scans.map((scan) => attachBuyersGuideToScan(scan, guideByVin.get(scan.vin) ?? null, ctx)),
+    [scans, guideByVin, ctx],
   );
 
   async function verifyOne(vin: string) {
@@ -97,6 +105,18 @@ export default function LogPage() {
       setNotice(`Buyers Guide verified on ${formatVin(vin)}.`);
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "Could not verify Buyers Guide.");
+    } finally {
+      setVerifyVin(null);
+    }
+  }
+
+  async function flagTerms(vin: string) {
+    setVerifyVin(vin);
+    try {
+      await setBuyersGuideTermsChange(session, vin, true);
+      setNotice(`Terms change flagged on ${formatVin(vin)}. Reprint the physical Buyers Guide before sale.`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not flag term change.");
     } finally {
       setVerifyVin(null);
     }
@@ -125,6 +145,8 @@ export default function LogPage() {
         locationName,
         generatedBy: session.user.fullName,
         generatedAt: new Date().toISOString(),
+        interval,
+        walkStartedAt: startedAt,
       },
       scans,
       guides,
@@ -184,6 +206,7 @@ export default function LogPage() {
             source: s.source,
             buyersGuideVerifiedAt: s.buyersGuideVerifiedAt ?? null,
             buyersGuideStatus: s.buyersGuideStatus,
+            termsChangeRequired: s.termsChangeRequired,
           })),
         }),
       );
@@ -248,22 +271,23 @@ export default function LogPage() {
 
         {scans.length > 0 ? (
           <div className="flex flex-col gap-3">
-            <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Buyers Guide Audit</p>
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Lot inspection & accuracy</p>
+            <BuyersGuideHint />
             <div className="grid grid-cols-2 gap-2">
               <Stat label="Total Lot Units" value={counts.total} />
-              <Stat label="Compliant" value={counts.valid} tone="ok" />
-              <Stat label="Re-check Due" value={counts.warning} tone="warn" />
-              <Stat label="Non-Compliant" value={counts.expired} tone="alert" />
+              <Stat label="Verified Present" value={counts.present} tone="ok" />
+              <Stat label="Inspection Recommended" value={counts.recommended} tone="warn" />
+              <Stat label="Terms reprint" value={counts.terms} tone="alert" />
             </div>
             <div className="flex flex-col gap-2">
               {LOT_FILTERS.map((chip) => {
                 const count =
-                  chip.id === "valid"
-                    ? counts.valid
-                    : chip.id === "warning"
-                      ? counts.warning
-                      : chip.id === "expired"
-                        ? counts.expired
+                  chip.id === "present"
+                    ? counts.present
+                    : chip.id === "recommended"
+                      ? counts.recommended
+                      : chip.id === "terms"
+                        ? counts.terms
                         : counts.total;
                 const active = filter === chip.id;
                 return (
@@ -295,12 +319,13 @@ export default function LogPage() {
           </Card>
         ) : visible.length === 0 ? (
           <Card>
-            <p className="font-bold">No units match {BUYERS_GUIDE_STATUS_LABEL[filter === "all" ? "expired" : filter]} on this lot.</p>
+            <p className="font-bold">No units match this lot inspection filter.</p>
           </Card>
         ) : (
           <ul className="flex flex-col gap-2">
             {visible.map((scan) => {
-              const status = buyersGuideStatus(guideByVin.get(scan.vin) ?? null);
+              const record = guideByVin.get(scan.vin) ?? null;
+              const status = buyersGuideStatus(record, ctx);
               return (
                 <li key={scan.id}>
                   <Card className="flex flex-col gap-3 p-4">
@@ -311,7 +336,7 @@ export default function LogPage() {
                           {scan.scannerName} · {scan.source === "barcode" ? "Barcode" : "Typed"} ·{" "}
                           {new Date(scan.scannedAt).toLocaleString()}
                         </p>
-                        <BuyersGuideBadge status={status} />
+                        <BuyersGuideBadge status={status} termsChangeRequired={Boolean(record?.termsChangeRequired)} />
                       </Link>
                       <button
                         type="button"
@@ -328,6 +353,15 @@ export default function LogPage() {
                       compact
                       onVerify={() => void verifyOne(scan.vin)}
                     />
+                    <button
+                      type="button"
+                      disabled={verifyVin !== null}
+                      title="Flag that vehicle terms changed. A new physical Buyers Guide must be printed and posted before sale."
+                      className="min-h-11 rounded-xl border-2 border-line px-3 text-xs font-extrabold uppercase tracking-wide sunlight:border-slate-300"
+                      onClick={() => void flagTerms(scan.vin)}
+                    >
+                      Terms changed
+                    </button>
                   </Card>
                 </li>
               );
@@ -349,6 +383,7 @@ export default function LogPage() {
           source: s.source,
           buyersGuideVerifiedAt: s.buyersGuideVerifiedAt ?? null,
           buyersGuideStatus: s.buyersGuideStatus,
+          termsChangeRequired: s.termsChangeRequired,
         }))}
       />
     </div>

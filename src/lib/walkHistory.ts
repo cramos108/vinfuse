@@ -14,6 +14,7 @@ export type ArchivedVin = {
   source: ScanSource;
   buyersGuideVerifiedAt?: string | null;
   buyersGuideStatus?: BuyersGuideStatus;
+  termsChangeRequired?: boolean;
 };
 
 export type ArchivedWalk = {
@@ -77,6 +78,7 @@ export function archiveClosedWalk(input: {
       source: s.source,
       buyersGuideVerifiedAt: s.buyersGuideVerifiedAt ?? null,
       buyersGuideStatus: s.buyersGuideStatus,
+      termsChangeRequired: s.termsChangeRequired,
     })),
   };
   const next = [walk, ...loadAll().filter((w) => w.id !== walk.id)];
@@ -108,8 +110,9 @@ export function walkShareText(walk: {
     `${walk.vins.length} VIN${walk.vins.length === 1 ? "" : "s"}`,
     "",
     ...walk.vins.map((v, i) => {
-      const status = v.buyersGuideStatus ? BUYERS_GUIDE_STATUS_LABEL[v.buyersGuideStatus] : "Non-Compliant / Missing";
-      return `${i + 1}. ${formatVin(v.vin)}  ${new Date(v.scannedAt).toLocaleString()}  ${v.scannerName}  Buyers Guide: ${status}  verified ${formatBuyersGuideWhen(v.buyersGuideVerifiedAt ?? null)}`;
+      const status = v.buyersGuideStatus ? BUYERS_GUIDE_STATUS_LABEL[v.buyersGuideStatus] : "Inspection Recommended";
+      const reprint = v.termsChangeRequired ? "  reprint required" : "";
+      return `${i + 1}. ${formatVin(v.vin)}  ${new Date(v.scannedAt).toLocaleString()}  ${v.scannerName}  Buyers Guide: ${status}  checked ${formatBuyersGuideWhen(v.buyersGuideVerifiedAt ?? null)}${reprint}`;
     }),
     "",
     "Stored on this device. Not uploaded to VinFuse.",

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRequiredSession } from "@/components/AuthProvider";
-import { BuyersGuideBadge, BuyersGuideVerifyButton } from "@/components/BuyersGuideToggle";
+import { BuyersGuideBadge, BuyersGuideHint, BuyersGuideVerifyButton } from "@/components/BuyersGuideToggle";
 import { TermGlossary } from "@/components/TermGlossary";
 import { UpgradeGate } from "@/components/UpgradeGate";
 import { Button, Card, Stat } from "@/components/ui";
@@ -10,10 +10,13 @@ import {
   BUYERS_GUIDE_STATUS_LABEL,
   buyersGuideCounts,
   buyersGuideStatus,
+  getBuyersGuideInterval,
   matchesBuyersGuideFilter,
 } from "@/lib/buyersGuide";
 import { canImportCsv, isManager } from "@/lib/plan";
 import {
+  getActiveLocationId,
+  getOpenSession,
   importInventoryCsv,
   listBuyersGuide,
   listInventory,
@@ -23,14 +26,14 @@ import {
   verifyBuyersGuidePresent,
 } from "@/lib/store";
 import { TERMS } from "@/lib/terms";
-import type { BuyersGuideFilter, BuyersGuideRecord, InventoryItem, Location } from "@/lib/types";
+import type { BuyersGuideFilter, BuyersGuideInterval, BuyersGuideRecord, InventoryItem, Location } from "@/lib/types";
 import { formatVin } from "@/lib/vin";
 
 const AUDIT_FILTERS: Array<{ id: BuyersGuideFilter; label: string }> = [
-  { id: "all", label: "Buyers Guide Audit" },
-  { id: "valid", label: BUYERS_GUIDE_STATUS_LABEL.valid },
-  { id: "warning", label: BUYERS_GUIDE_STATUS_LABEL.warning },
-  { id: "expired", label: BUYERS_GUIDE_STATUS_LABEL.expired },
+  { id: "all", label: "Lot inspection" },
+  { id: "present", label: BUYERS_GUIDE_STATUS_LABEL.present },
+  { id: "recommended", label: BUYERS_GUIDE_STATUS_LABEL.recommended },
+  { id: "terms", label: "Terms reprint" },
 ];
 
 export default function InventoryPage() {
@@ -43,6 +46,8 @@ export default function InventoryPage() {
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<BuyersGuideFilter>("all");
   const [verifyVin, setVerifyVin] = useState<string | null>(null);
+  const [interval, setInterval] = useState<BuyersGuideInterval>(30);
+  const [walkStartedAt, setWalkStartedAt] = useState<string | null>(null);
 
   async function load() {
     if (!session.dealership.id) return;
@@ -53,6 +58,12 @@ export default function InventoryPage() {
     ]);
     setItems(inventory);
     setGuides(records);
+    setInterval(getBuyersGuideInterval(session.dealership.id));
+    const active = getActiveLocationId(locs);
+    if (active) {
+      const open = await getOpenSession(session.dealership.id, active);
+      setWalkStartedAt(open?.startedAt ?? null);
+    }
   }
 
   useEffect(() => {
@@ -63,12 +74,16 @@ export default function InventoryPage() {
   }, [session.dealership.id]);
 
   const guideByVin = useMemo(() => new Map(guides.map((row) => [row.vin, row])), [guides]);
+  const ctx = useMemo(
+    () => ({ interval, walkStartedAt }),
+    [interval, walkStartedAt],
+  );
   const counts = useMemo(
-    () => buyersGuideCounts(items.map((item) => item.vin), guides),
-    [items, guides],
+    () => buyersGuideCounts(items.map((item) => item.vin), guides, ctx),
+    [items, guides, ctx],
   );
   const visible = items.filter((item) =>
-    matchesBuyersGuideFilter(buyersGuideStatus(guideByVin.get(item.vin) ?? null), filter),
+    matchesBuyersGuideFilter(guideByVin.get(item.vin) ?? null, filter, ctx),
   );
 
   if (!canImportCsv(session.dealership, session.user.role)) {
